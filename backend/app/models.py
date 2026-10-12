@@ -1,6 +1,7 @@
-"""DB 스키마 — 기획서 5장의 7개 테이블에 검증 과정에서 보완한 내용을 반영했다.
+"""DB 스키마.
 
-보완 내역은 docs/initial-development.md 의 "DB 스키마 확정안" 참고.
+ERD와 테이블 명세는 docs/erd.md 에 있다. 이 파일을 바꾸면 마이그레이션을 추가하고
+`uv run python -m app.erd` 로 ERD 문서를 다시 생성한다 (테스트가 최신 여부를 검사함).
 """
 
 import uuid

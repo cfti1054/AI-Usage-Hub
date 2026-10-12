@@ -100,11 +100,13 @@ backend/
     scheduler.py       주기 수집 + 환율 갱신
     reports.py · money.py  집계, 통화 환산
     fx.py              환율 자동 조회 (수출입은행 → Frankfurter 순서)
+    erd.py             docs/erd.md 자동 생성
+  collector/           Claude Code 토큰 사용량 로컬 수집기
     seed.py            관리자 계정 + 1차 서비스 4종 (멱등)
     connectors/        __init__.py(레지스트리), base.py(인터페이스)
     routers/           auth, dashboard, services, subscriptions, usage, costs, sync_jobs, settings
   migrations/          Alembic (0001_initial_schema, 0002_fx_auto)
-  tests/               API·환율 테스트 16건
+  tests/               API·환율·수집기·ERD 테스트 22건
   Dockerfile · railway.toml · pyproject.toml · uv.lock
 frontend/
   src/app/(app)/       page.tsx(대시보드), services/[id], costs, settings
@@ -113,7 +115,7 @@ frontend/
   src/components/      ServiceCard, SummaryStats, SourceBadge, Sidebar, charts, ActionForm, FxSettings
   src/lib/             api.ts(server-only), types.ts, format.ts
   src/middleware.ts    미인증 시 /login 리다이렉트
-docs/initial-development.md   이 문서
+docs/                user-guide · implementation-status · erd · initial-development
 ```
 
 ---
@@ -303,3 +305,47 @@ npm run dev                   # http://localhost:3000
 - 카카오 계정에서 앱 연결을 끊거나 리프레시 토큰이 만료되면 발송이 중단됩니다 → 재연결 안내와 화면 내 알림으로 대신합니다.
 - 메시지 API 정책은 바뀔 수 있으므로 구현할 때 공식 문서를 다시 확인합니다.
 - 카카오톡을 쓰지 않는 상황에 대비해 이메일(예: Resend 무료 플랜)을 2순위 채널로 붙일 수 있도록 알림 채널을 인터페이스로 추상화합니다.
+
+---
+
+## 12. Claude Code 토큰 사용량 로컬 수집기
+
+Claude Code 세션 로그(`~/.claude/projects/**/*.jsonl`)를 읽어 이번 달 토큰 누계를 서버에 올립니다. 서버는 클라우드에서 PC 로그에 접근할 수 없으므로, PC에서 직접 실행합니다. 코드는 `backend/collector/claude_code.py`이며 표준 라이브러리만 사용합니다.
+
+### 12.1 집계 규칙
+- 어시스턴트 메시지의 `usage`를 집계합니다. 입력, 출력, 캐시 생성, 캐시 읽기 네 항목을 각각 저장합니다.
+- 같은 `message.id`가 여러 줄에 반복되므로 **메시지 ID 기준으로 한 번만** 셉니다. 실제 로그에서 1973건이 고유 메시지 754개였습니다.
+- 날짜는 `AIHUB_TZ`(기본 Asia/Seoul) 기준이며, 이번 달과 오늘을 따로 계산합니다. 지난달과 미래 날짜는 제외합니다.
+- 서버에는 **이번 달 누계 스냅샷**(`metric_code=tokens_month`, `source_type=cli`)을 보냅니다. 대시보드는 최신 스냅샷을 보여주므로 한 번만 올라가도 현재 값이 표시됩니다.
+- 총합(`used_value`)은 네 항목의 합계입니다. 캐시 읽기 토큰은 비용이 매우 낮지만 토큰 수로는 크게 잡히므로, 총합이 실제 "체감 사용량"보다 크게 보일 수 있습니다. 필요하면 입력+출력만 보내도록 바꿀 수 있습니다.
+
+### 12.2 실행 방법
+```powershell
+cd C:\Users\cfti1\Documents\GitHub\AI-Usage-Hub\backend
+
+# 1) 집계만 확인 (서버 전송 없음)
+uv run python -m collector.claude_code --dry-run
+
+# 2) 업로드 (환경변수 필요)
+$env:AIHUB_URL = "https://ai-usage-hub-production.up.railway.app"
+$env:AIHUB_EMAIL = "<대시보드 로그인 이메일>"
+$env:AIHUB_PASSWORD = "<대시보드 로그인 비밀번호>"
+uv run python -m collector.claude_code
+```
+
+### 12.3 정기 실행 (Windows 작업 스케줄러)
+1. 환경변수를 사용자 환경변수로 등록해 두면 스케줄러가 읽을 수 있습니다. 한 번만 실행하면 됩니다.
+   ```powershell
+   [Environment]::SetEnvironmentVariable("AIHUB_URL", "https://ai-usage-hub-production.up.railway.app", "User")
+   [Environment]::SetEnvironmentVariable("AIHUB_EMAIL", "<이메일>", "User")
+   [Environment]::SetEnvironmentVariable("AIHUB_PASSWORD", "<비밀번호>", "User")
+   ```
+2. 작업 스케줄러에서 **기본 작업 만들기** → 트리거를 "매일" 또는 "매시간"으로 설정합니다.
+3. 동작은 **프로그램 시작**, 프로그램에 `uv`(전체 경로, 예: `C:\Users\<사용자>\.local\bin\uv.exe`), 인수에 `run python -m collector.claude_code`, **시작 위치**에 `C:\Users\cfti1\Documents\GitHub\AI-Usage-Hub\backend`를 넣습니다.
+4. PC가 꺼져 있으면 실행되지 않습니다. 작업 속성에서 "예약된 시간에 시작하지 못하면 가능한 한 빨리 실행"을 체크하면 다음 부팅 때 실행됩니다.
+
+### 12.4 한계
+- 로그 형식은 공식 문서가 없는 내부 형식입니다. Claude Code 버전이 바뀌면 파서를 고쳐야 할 수 있습니다.
+- 구독의 세션·주간 **한도 사용률(%)** 은 로그에 없으므로 여기서 계산하지 않습니다.
+- 실행할 때마다 스냅샷이 한 줄씩 쌓입니다. 하루 여러 번 실행하면 `usage_snapshots`가 조금씩 커지지만 개인 사용량 수준에서는 문제가 되지 않습니다.
+- 집계 대상 PC의 로그만 포함됩니다. 다른 PC에서 쓴 사용량은 각 PC에서 따로 올라갑니다. 같은 달에 두 PC가 각각 누계를 보내면 마지막에 올린 값만 표시되므로, 여러 PC를 쓴다면 이 점을 고려해야 합니다.
