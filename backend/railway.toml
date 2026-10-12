@@ -1,0 +1,12 @@
+# Railway 서비스 설정 (서비스 1개 = 이 디렉터리). PostgreSQL은 Railway 대시보드에서
+# Database 서비스로 추가하고, API 서비스 변수에 DATABASE_URL=${{Postgres.DATABASE_URL}} 을 연결한다.
+# 기획서의 [[services]] 블록은 railway.toml 이 지원하지 않는 형식이라 제외했다.
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "Dockerfile"
+
+[deploy]
+healthcheckPath = "/health"
+healthcheckTimeout = 120
+restartPolicyType = "ON_FAILURE"
+# 주의: APScheduler가 프로세스 내부에서 돌기 때문에 Railway 서비스 레플리카는 1개로 유지한다
