@@ -11,7 +11,7 @@ function Stat({ label, value, note }: { label: string; value: string; note?: str
   );
 }
 
-export function SummaryStats({ summary }: { summary: DashboardSummary }) {
+export function SummaryStats({ summary, monthLabel }: { summary: DashboardSummary; monthLabel: string }) {
   const missing = summary.conversion_missing ? "일부 금액 환율 미설정" : undefined;
   return (
     <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
@@ -30,7 +30,7 @@ export function SummaryStats({ summary }: { summary: DashboardSummary }) {
         value={formatPercent(summary.avg_usage_rate)}
         note={summary.avg_usage_rate === null ? "한도 정보가 있는 서비스 없음" : "한도 제공 서비스 기준"}
       />
-      <Stat label="이번 달 API 비용" value={formatMoney(summary.api_cost_total, summary.currency)} note={missing} />
+      <Stat label={`${monthLabel} API 비용`} value={formatMoney(summary.api_cost_total, summary.currency)} note={missing} />
     </div>
   );
 }

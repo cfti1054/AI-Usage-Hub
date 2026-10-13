@@ -5,7 +5,6 @@ import { DeviceStatus } from "./DeviceStatus";
 import { SourceBadge } from "./SourceBadge";
 
 const METRIC_LABELS: Record<string, string> = {
-  tokens_month: "이번 달 토큰",
   tokens_day: "오늘 토큰",
 };
 
@@ -16,7 +15,15 @@ const STATE_MESSAGE: Record<Exclude<DataState, "ok">, string> = {
   disabled: "비활성화된 서비스",
 };
 
-export function ServiceCard({ card, currency }: { card: ServiceCardData; currency: string }) {
+export function ServiceCard({
+  card,
+  currency,
+  monthLabel = "이번 달",
+}: {
+  card: ServiceCardData;
+  currency: string;
+  monthLabel?: string;
+}) {
   const sub = card.subscription;
   const renewal = dday(sub?.renewal_date);
   const isError = card.data_state === "error";
@@ -42,7 +49,7 @@ export function ServiceCard({ card, currency }: { card: ServiceCardData; currenc
         {card.data_state === "ok" && card.usage ? (
           <>
             <div className="flex items-baseline justify-between text-sm">
-              <span className="text-slate-600">{METRIC_LABELS[card.usage.metric_code] ?? card.usage.metric_code}</span>
+              <span className="text-slate-600">{card.usage.metric_code === "tokens_month" ? `${monthLabel} 토큰` : (METRIC_LABELS[card.usage.metric_code] ?? card.usage.metric_code)}</span>
               <span className="font-medium tabular-nums">
                 {card.usage_rate !== null
                   ? formatPercent(card.usage_rate)
@@ -82,7 +89,7 @@ export function ServiceCard({ card, currency }: { card: ServiceCardData; currenc
       <dl className="mt-3 space-y-0.5 text-xs text-slate-500">
         {card.month_api_cost !== null && (
           <div className="flex justify-between">
-            <dt>이번 달 API 비용</dt>
+            <dt>{monthLabel} API 비용</dt>
             <dd className="tabular-nums text-slate-700">{formatMoney(card.month_api_cost, currency)}</dd>
           </div>
         )}

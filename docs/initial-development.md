@@ -107,7 +107,7 @@ backend/
     connectors/        __init__.py(레지스트리), base.py(인터페이스)
     routers/           auth, dashboard, services, subscriptions, usage, costs, sync_jobs, settings
   migrations/          Alembic (0001_initial_schema, 0002_fx_auto, 0003_devices, 0004_usage_imports)
-  tests/               API·환율·기기·에이전트·CSV·ERD 테스트 42건
+  tests/               API·환율·기기·에이전트·CSV·월 선택·ERD 테스트 47건
   Dockerfile · railway.toml · pyproject.toml · uv.lock
 frontend/
   src/app/(app)/       page.tsx(대시보드), services/[id], costs, settings
@@ -180,7 +180,7 @@ class Connector(ABC):
 | Method | Endpoint | 설명 | 기획서 |
 |---|---|---|---|
 | POST | `/api/auth/login` | 로그인 → JWT | 추가 |
-| GET | `/api/dashboard/summary` | 요약 4칸, 서비스 카드, 7일 비용, 다음 수집 시각 | ✅ |
+| GET | `/api/dashboard/summary?period=YYYY-MM` | 요약 4칸, 서비스 카드, 일별 비용, 다음 수집 시각. `period`를 주면 그 달 기준(기본 이번 달) | ✅ |
 | GET / POST | `/api/services` | 서비스 목록 / 추가 | ✅ |
 | PATCH | `/api/services/{id}` | 수정·활성화·비활성화 (FR-01) | 추가 |
 | GET | `/api/services/{id}/usage?days=` | 최신 지표, 이력, 비용, 최근 수집 이력 | ✅ |

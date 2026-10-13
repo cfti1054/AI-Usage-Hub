@@ -106,6 +106,8 @@ export interface Fx {
 
 export interface DashboardSummary {
   period: string;
+  current_period: string;
+  is_current_month: boolean;
   currency: string;
   fx: Fx | null;
   subscription_total: Num | null;

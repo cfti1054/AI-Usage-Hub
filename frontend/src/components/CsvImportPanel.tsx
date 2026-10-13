@@ -31,7 +31,14 @@ export function CsvImportPanel({ serviceId, imports }: { serviceId: string; impo
       </div>
       <ActionForm action={uploadCsvAction} className="flex flex-wrap items-center gap-2">
         <input type="hidden" name="service_id" value={serviceId} />
-        <input name="file" type="file" accept=".csv,text/csv" required className="text-sm" />
+        <input
+          name="file"
+          type="file"
+          accept=".csv,text/csv"
+          required
+          aria-label="업로드할 CSV 파일"
+          className="block w-full max-w-md cursor-pointer rounded-md border border-slate-300 bg-white text-sm text-slate-600 file:mr-3 file:cursor-pointer file:border-0 file:border-r file:border-slate-300 file:bg-slate-100 file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-slate-800 hover:border-slate-400 hover:file:bg-slate-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-400"
+        />
         <SubmitButton>업로드</SubmitButton>
       </ActionForm>
 

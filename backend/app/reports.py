@@ -44,9 +44,11 @@ def is_online(device: Device, now: datetime | None = None) -> bool:
     return (now or datetime.now(UTC)) - _aware(device.last_seen_at) <= ONLINE_WINDOW
 
 
-def device_month_usage(db: Session, user_id: uuid.UUID, settings: UserSettings) -> dict[str, list[dict]]:
-    """서비스별 → 기기별 이번 달 누계. 기기마다 하나의 행만 있으므로 그대로 합산하면 된다."""
-    month_start = local_today(settings).replace(day=1)
+def device_month_usage(
+    db: Session, user_id: uuid.UUID, settings: UserSettings, month_start: date | None = None
+) -> dict[str, list[dict]]:
+    """서비스별 → 기기별 해당 월(기본: 이번 달) 누계. 기기마다 하나의 행만 있으므로 그대로 합산하면 된다."""
+    month_start = month_start or local_today(settings).replace(day=1)
     rows = db.execute(
         select(UsageSnapshot, Device)
         .join(Device, UsageSnapshot.device_id == Device.id)
@@ -100,9 +102,11 @@ def _local_month(dt: datetime, tz: ZoneInfo) -> str:
     return _aware(dt).astimezone(tz).strftime("%Y-%m")
 
 
-def event_month_usage(db: Session, user_id: uuid.UUID, settings: UserSettings) -> dict[str, dict]:
-    """서비스별 이번 달 CSV 업로드 토큰 합계와 마지막 업로드 시각."""
-    since, until = month_bounds_utc(settings, local_today(settings).replace(day=1))
+def event_month_usage(
+    db: Session, user_id: uuid.UUID, settings: UserSettings, month_start: date | None = None
+) -> dict[str, dict]:
+    """서비스별 해당 월(기본: 이번 달) CSV 업로드 토큰 합계와 마지막 업로드 시각."""
+    since, until = month_bounds_utc(settings, month_start or local_today(settings).replace(day=1))
     totals: dict[str, dict] = {}
     for e in _event_rows(db, user_id, since, until):
         t = totals.setdefault(e.service_id, {"used_value": 0, "breakdown": dict.fromkeys(TOKEN_FIELDS, 0)})
@@ -243,9 +247,11 @@ def api_cost_by_service(records: list[CostRecord], settings: UserSettings) -> di
     return {service_id: _sum(amounts) for service_id, amounts in grouped.items()}
 
 
-def daily_api_costs(db: Session, user_id: uuid.UUID, settings: UserSettings, days: int) -> list[dict]:
-    """최근 N일 일별 API 비용 (일 단위 버킷만 — 수동 월 입력은 제외)."""
-    end = local_today(settings)
+def daily_api_costs(
+    db: Session, user_id: uuid.UUID, settings: UserSettings, days: int, end: date | None = None
+) -> list[dict]:
+    """end(기본: 오늘)까지 N일의 일별 API 비용 (일 단위 버킷만 — 수동 월 입력은 제외)."""
+    end = end or local_today(settings)
     start = end - timedelta(days=days - 1)
     records = db.scalars(
         select(CostRecord).where(

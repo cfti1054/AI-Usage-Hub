@@ -17,7 +17,7 @@ AI Usage Hub에 지금까지 구현된 기능과 아직 구현되지 않은 기�
 | 서비스별 자동 수집 커넥터 | ❌ 미구현 | Anthropic·OpenAI·Gemini 커넥터 없음 → 자동 수집 대상이 아직 없음 |
 | 알림 | ❌ 미구현 | 임계치 값만 저장. 카카오톡 "나에게 보내기" 검토 완료 |
 | 배포 | ✅ 설정 완료 | Railway(백엔드·DB), Vercel(프론트엔드) |
-| 테스트 | ✅ 42건 통과 | `cd backend && uv run pytest` |
+| 테스트 | ✅ 47건 통과 | `cd backend && uv run pytest` |
 
 ## 1. 구현 완료
 
@@ -33,7 +33,7 @@ AI Usage Hub에 지금까지 구현된 기능과 아직 구현되지 않은 기�
 | 기기 관리 | 기기 등록(토큰 1회 발급, 해시 저장), 목록(온라인 여부·이번 달 사용량), 토큰 재발급, 토큰 폐기 | `app/routers/devices.py` |
 | CSV 업로드 | Cursor 사용량 CSV 파싱(열 순서 무관, BOM·천 단위 쉼표 허용, 잘못된 행 건너뜀), (시각·모델·총 토큰) 기준 중복 제거, 업로드 이력·삭제, 최근 12개월 월별 토큰 합계 | `app/imports/`, `app/routers/imports.py` |
 | 에이전트 API | 기기 토큰 인증, 기기별 월·일 누계 덮어쓰기 업로드, 온라인 신호 | `app/routers/agent.py` |
-| 대시보드 집계 | 요약 4칸, 서비스 카드 상태(정상·데이터 없음·수집 불가·실패·비활성·오래됨), 기기별 이번 달 토큰 합산, 최근 7일 API 비용 | `app/routers/dashboard.py`, `app/reports.py` |
+| 대시보드 집계 | `period`(YYYY-MM)로 지정한 달 기준 집계(기본 이번 달). 요약 4칸, 서비스 카드 상태(정상·데이터 없음·수집 불가·실패·비활성·오래됨), 기기별 이번 달 토큰 합산, 최근 7일 API 비용 | `app/routers/dashboard.py`, `app/reports.py` |
 | 비용 분석 | 월별 구독료와 API 비용 분리, 원 통화 표시, 12개월 서비스별 추이 | `app/routers/costs.py` |
 | 환율 | 자동 조회(6시간 주기, 실패 시 기존 값 유지)와 직접 입력 전환 | `app/fx.py`, `app/routers/settings.py` |
 | 자동 수집 엔진 | 커넥터 실행 → 저장 → 수집 이력. 비용은 덮어쓰기(upsert), 오류 메시지의 API 키 마스킹 | `app/sync.py`, `app/connectors/` |
@@ -48,7 +48,7 @@ API 목록은 [initial-development.md](initial-development.md)의 6장에 있습
 | 화면 | 경로 | 내용 |
 |---|---|---|
 | 로그인 | `/login` | 로그인 후 쿠키(httpOnly)에 토큰 저장 |
-| 대시보드 | `/` | 요약 4칸, 서비스 카드(기기별 값·온라인 상태), 비용 비중 도넛, 최근 7일 API 비용, 1분 자동 갱신 |
+| 대시보드 | `/` | **월 선택**(◀▶·월 입력·이번 달), 요약 4칸, 서비스 카드(기기별 값·온라인 상태), 비용 비중 도넛, 일별 API 비용, 1분 자동 갱신(이번 달) |
 | 서비스 상세 | `/services/{id}` | CSV 업로드·이력(Cursor), 월별 토큰 사용량(12개월), 기기별 토큰 사용량(입력·출력·캐시), 최신 지표, 수동 입력 폼, 비용 기록, 수집 이력, 1분 자동 갱신 |
 | 비용 분석 | `/costs` | 월 선택, 구독료/API 비용 분리, 환율 기준·출처, 12개월 추이 차트 |
 | 설정 | `/settings` | 서비스 활성화·추가, API 키, **기기 관리**(등록, Windows/macOS 설치 안내, 토큰 재발급·폐기), 구독 정보, 환율, 표시·알림·수집 설정 |
@@ -72,7 +72,7 @@ API 목록은 [initial-development.md](initial-development.md)의 6장에 있습
 | Railway | `backend/Dockerfile`, `backend/railway.toml` | 시작 시 마이그레이션 → 초기 데이터 → 서버 실행. 헬스체크 `/health` |
 | Vercel | `frontend/` 루트 | 환경변수 `API_BASE_URL`에 Railway 주소 필요 |
 
-### 1.5 테스트 (42건)
+### 1.5 테스트 (47건)
 
 | 파일 | 건수 | 검증 내용 |
 |---|---|---|
@@ -80,6 +80,7 @@ API 목록은 [initial-development.md](initial-development.md)의 6장에 있습
 | `tests/test_fx.py` | 7 | 수출입은행 주말 처리·인증 오류, ECB 대체, 직접 입력 보호, 조회 실패 시 기존 값 유지 |
 | `tests/test_collector.py` | 9 | Claude Code 중복 제거·시간대·변경 파일만 재파싱, Codex 누적값 차이·포크 이력 제외·보관 세션 중복, 업로드 형식, 설정 파일 파싱 |
 | `tests/test_imports.py` | 8 | 실제 Cursor CSV 파싱, 숫자 비용·열 순서, 잘못된 행 건너뜀, 형식 오류, 재업로드 중복 제거, 겹치는 기간, 월별 합계·삭제, 오류 응답 |
+| `tests/test_dashboard_period.py` | 5 | 기본은 이번 달, 지난달 기기·API 비용·CSV 값, 수동 입력의 월 구분, 잘못된 period 거부 |
 | `tests/test_devices.py` | 8 | 토큰 1회 노출·해시 저장, 토큰 재발급, 폐기 토큰 거부, 없는 서비스 거부, 기기별 합산·덮어쓰기, 지난달 값 제외, 폐기 기기 값 유지, 오프라인 전환 |
 | `tests/test_erd.py` | 1 | `docs/erd.md`가 모델과 일치하는지 |
 
@@ -91,6 +92,7 @@ API 목록은 [initial-development.md](initial-development.md)의 6장에 있습
 | OpenAI API 비용 커넥터 | 없음 | Admin API 키로 Costs/Usage API 조회 |
 | Gemini 비용 커넥터 | 없음 | BigQuery 결제 내보내기 조회 |
 | 알림 | 임계치(%)만 저장되고 발송 기능 없음 | 화면 내 알림 + 카카오톡 "나에게 보내기"([initial-development.md](initial-development.md) 11장) |
+| 구독료 월별 이력 | 지난달을 봐도 현재 구독 기준으로 표시 | 구독 변경 이력을 저장해 그 달의 구독료로 계산 |
 | Cursor CSV 비용 반영 | 숫자 Cost는 요청별로 저장만 함 | 비용 분석의 API 비용 합계에 포함 (수동 월 비용과 중복되지 않게 설계 필요) |
 | 토큰 일별 추이 차트 | 일별 값(`tokens_day`)은 저장되지만 화면에 차트 없음 | 서비스 상세에 일별 막대 차트 |
 | Codex 실제 로그 검증 | 소스 코드 기준 파서, 실제 로그 미검증 | Codex 사용 PC에서 `--dry-run`으로 확인 |
