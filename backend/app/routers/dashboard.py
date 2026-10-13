@@ -55,16 +55,44 @@ def summary(db: DbSession, user: CurrentUser) -> dict:
     stale_after = timedelta(minutes=settings.sync_interval_minutes * 2)
     now = datetime.now(UTC)
     device_usage = reports.device_month_usage(db, user.id, settings)
+    csv_usage = reports.event_month_usage(db, user.id, settings)
+    month_start = reports.local_today(settings).replace(day=1)
     cards = []
     for service in services:
-        devices = device_usage.get(service.id, [])
-        if devices:
-            # 기기 에이전트 값이 있으면 기기별 이번 달 누계를 합산해 하나의 사용량으로 보여준다
-            latest = max(devices, key=lambda d: _aware(d["captured_at"]))["snapshot"]
-            snap = latest
-            usage = SnapshotOut.model_validate(latest).model_copy(
-                update={"used_value": sum((d["used_value"] or 0 for d in devices), Decimal(0))}
+        # 이번 달 토큰 출처: 기기 에이전트(기기별 누계) + CSV 업로드(요청별 합계)
+        sources = [
+            {k: d[k] for k in ("device_id", "name", "used_value", "captured_at", "online", "revoked")} | {"kind": "device"}
+            for d in device_usage.get(service.id, [])
+        ]
+        csv = csv_usage.get(service.id)
+        if csv:
+            sources.append(
+                {
+                    "kind": "csv",
+                    "device_id": None,
+                    "name": "CSV 업로드",
+                    "used_value": Decimal(csv["used_value"]),
+                    "captured_at": csv["captured_at"] or now,
+                    "online": False,
+                    "revoked": False,
+                }
             )
+        if sources:
+            # 출처별 이번 달 값을 합산해 하나의 사용량으로 보여준다
+            usage = SnapshotOut(
+                id=0,
+                metric_code=reports.MONTH_METRIC,
+                used_value=sum((Decimal(s["used_value"] or 0) for s in sources), Decimal(0)),
+                limit_value=None,
+                unit="tokens",
+                status="ok",
+                period_start=month_start,
+                period_end=None,
+                resets_at=None,
+                source_type="cli" if any(s["kind"] == "device" for s in sources) else "manual",
+                captured_at=max(_aware(s["captured_at"]) for s in sources),
+            )
+            snap = usage
         else:
             # 기기 값(지난달 누계·일별 행 포함)은 제외하고 수동 입력·API 값 중 최신 1건
             snap = db.scalar(
@@ -95,11 +123,9 @@ def summary(db: DbSession, user: CurrentUser) -> dict:
                 "subscription": SubscriptionOut.model_validate(sub) if sub else None,
                 "subscription_monthly": reports.subscription_monthly(sub, settings) if sub else None,
                 "usage": usage,
-                "usage_rate": _usage_rate(snap) if not devices else None,
-                "devices": [
-                    {k: d[k] for k in ("device_id", "name", "used_value", "captured_at", "online", "revoked")}
-                    for d in devices
-                ],
+                "usage_rate": _usage_rate(snap) if not sources else None,
+                # 이름은 기존 호환을 위해 devices 로 유지. kind 가 'device' 또는 'csv'
+                "devices": sources,
                 "month_api_cost": api_cost.total if api_cost else None,
                 "last_sync": SyncJobOut.model_validate(job) if job else None,
                 "data_state": state,

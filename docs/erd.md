@@ -28,6 +28,8 @@ AI Usage Hub의 데이터베이스 구조입니다. 운영 DB는 Railway Postgre
 | `usage_snapshots` | 시점별 사용량 | 수동 입력·API 커넥터 값은 `device_id`가 NULL이며 대시보드는 그중 최신 1건을 표시. 기기 에이전트 값은 `device_id`가 있고 (기기, 서비스, 지표, 기간 시작) 단위로 덮어쓰며, 대시보드는 기기별 이번 달 누계(`tokens_month`)를 합산 |
 | `cost_records` | API 종량제 비용 | 일 단위(API) 또는 월 단위(수동). 같은 버킷은 덮어씀(upsert) |
 | `sync_jobs` | 수집 이력 | 성공/실패, 오류 메시지(API 키 마스킹), 수동/자동 실행 구분 |
+| `usage_imports` | CSV 업로드 이력 | 파일 이름, 전체·추가·중복·오류 행 수, 파일의 기간. 삭제하면 이 업로드로 새로 추가된 요청만 함께 삭제 |
+| `usage_events` | 요청 1건의 토큰 사용량 (CSV 업로드) | 시각은 UTC. (사용자, 서비스, 시각, 모델, 총 토큰)이 같으면 같은 요청으로 보고 한 번만 저장 → 기간이 겹치는 파일을 다시 올려도 이중 집계되지 않음 |
 | `devices` | 사용량 에이전트를 실행하는 기기(PC) | 기기 토큰은 SHA-256 해시만 저장. `last_seen_at`으로 온라인 여부, `revoked_at`으로 폐기 표시 |
 
 ## 데이터 규칙
@@ -35,6 +37,7 @@ AI Usage Hub의 데이터베이스 구조입니다. 운영 DB는 Railway Postgre
 - **값이 없으면 0이 아니라 NULL**: `usage_snapshots.used_value`가 NULL이고 `status='unavailable'`이면 "수집 불가"로 표시합니다.
 - **구독료와 API 비용 분리**: 구독료는 `subscriptions`에서만 계산하고, `cost_records`에는 API 비용만 둡니다.
 - **원 통화 보존**: 금액은 원래 통화로 저장하고, 화면에서 `user_settings`의 환율로 환산합니다. `cost_records.exchange_rate`가 있으면 그 값이 우선합니다.
+- **토큰 출처 합산**: 서비스의 이번 달 토큰 = 기기별 `tokens_month` 합계 + 이번 달(현지 시간) `usage_events` 합계. CSV 값은 요청 단위로 저장하므로 월 단위로 다시 계산합니다.
 - **기기 값 합산**: 같은 서비스의 기기 값은 기기마다 이번 달 누계 1행만 유지하므로 그대로 더하면 됩니다. 폐기한 기기의 값도 실제 사용분이라 합계에 남습니다.
 - **출처 기록**: `usage_snapshots`, `cost_records`, `sync_jobs`의 `source_type`(api/cli/manual)으로 데이터가 어디서 왔는지 구분합니다.
 - **평문 비밀 금지**: 비밀번호는 scrypt 해시, 서비스 API 키는 Fernet 암호문으로만 저장합니다.
@@ -46,12 +49,13 @@ AI Usage Hub의 데이터베이스 구조입니다. 운영 DB는 Railway Postgre
 | 0001 | `backend/migrations/versions/0001_initial_schema.py` | 초기 스키마 8개 테이블 |
 | 0002 | `backend/migrations/versions/0002_fx_auto.py` | `user_settings`에 `fx_mode`, `fx_source`, `fx_updated_at` 추가. 기존 직접 입력 환율은 manual 모드로 보존 |
 | 0003 | `backend/migrations/versions/0003_devices.py` | `devices` 테이블 추가, `usage_snapshots.device_id`와 기기별 덮어쓰기용 유니크 제약 추가 |
+| 0004 | `backend/migrations/versions/0004_usage_imports.py` | `usage_imports`, `usage_events` 테이블 추가 (Cursor CSV 업로드) |
 
 ## ERD와 테이블 명세
 
 <!-- ERD:BEGIN — app/models.py 에서 자동 생성. 직접 수정하지 말고 `uv run python -m app.erd` 실행 -->
 
-테이블 9개. 타입은 PostgreSQL 기준입니다.
+테이블 11개. 타입은 PostgreSQL 기준입니다.
 
 ```mermaid
 erDiagram
@@ -62,7 +66,12 @@ erDiagram
     users ||--o{ subscriptions : "user_id"
     ai_services ||--o{ subscriptions : "service_id"
     ai_services ||--o{ sync_jobs : "service_id"
+    users ||--o{ usage_imports : "user_id"
+    ai_services ||--o{ usage_imports : "service_id"
     users ||--o| user_settings : "user_id"
+    users ||--o{ usage_events : "user_id"
+    ai_services ||--o{ usage_events : "service_id"
+    usage_imports ||--o{ usage_events : "import_id"
     users ||--o{ usage_snapshots : "user_id"
     ai_services ||--o{ usage_snapshots : "service_id"
     devices ||--o{ usage_snapshots : "device_id"
@@ -133,6 +142,19 @@ erDiagram
         text source_type
         text trigger
     }
+    usage_imports {
+        bigserial id PK
+        uuid user_id FK
+        text service_id FK
+        text filename
+        timestamptz uploaded_at
+        integer rows_total
+        integer rows_added
+        integer rows_duplicate
+        integer rows_invalid
+        timestamptz period_from "NULL"
+        timestamptz period_to "NULL"
+    }
     user_settings {
         uuid user_id PK, FK
         text timezone
@@ -144,6 +166,21 @@ erDiagram
         text fx_source "NULL"
         timestamptz fx_updated_at "NULL"
         integer sync_interval_minutes
+    }
+    usage_events {
+        bigserial id PK
+        uuid user_id FK
+        text service_id FK
+        bigint import_id FK
+        timestamptz occurred_at
+        text model
+        text kind "NULL"
+        bigint input_tokens
+        bigint output_tokens
+        bigint cache_creation_tokens
+        bigint cache_read_tokens
+        bigint total_tokens
+        numeric_12_6 cost_usd "NULL"
     }
     usage_snapshots {
         bigserial id PK
@@ -266,6 +303,22 @@ erDiagram
 - CHECK `ck_sync_jobs_status`: `status IN ('running', 'success', 'failed', 'partial')`
 - INDEX `ix_sync_jobs_service_started`: (service_id, started_at)
 
+### `usage_imports`
+
+| 컬럼 | 타입 | NULL | 기본값 | 키 |
+|---|---|---|---|---|
+| `id` | bigserial |  |  | PK |
+| `user_id` | uuid |  |  | FK → `users.id` |
+| `service_id` | text |  |  | FK → `ai_services.id` |
+| `filename` | text |  |  |  |
+| `uploaded_at` | timestamptz |  | `now()` |  |
+| `rows_total` | integer |  | `0` |  |
+| `rows_added` | integer |  | `0` |  |
+| `rows_duplicate` | integer |  | `0` |  |
+| `rows_invalid` | integer |  | `0` |  |
+| `period_from` | timestamptz | Y |  |  |
+| `period_to` | timestamptz | Y |  |  |
+
 ### `user_settings`
 
 | 컬럼 | 타입 | NULL | 기본값 | 키 |
@@ -282,6 +335,27 @@ erDiagram
 | `sync_interval_minutes` | integer |  | `60` |  |
 
 - CHECK `ck_user_settings_fx_mode`: `fx_mode IN ('auto', 'manual')`
+
+### `usage_events`
+
+| 컬럼 | 타입 | NULL | 기본값 | 키 |
+|---|---|---|---|---|
+| `id` | bigserial |  |  | PK |
+| `user_id` | uuid |  |  | FK → `users.id` |
+| `service_id` | text |  |  | FK → `ai_services.id` |
+| `import_id` | bigint |  |  | FK → `usage_imports.id (ON DELETE CASCADE)` |
+| `occurred_at` | timestamptz |  |  |  |
+| `model` | text |  |  |  |
+| `kind` | text | Y |  |  |
+| `input_tokens` | bigint |  |  |  |
+| `output_tokens` | bigint |  |  |  |
+| `cache_creation_tokens` | bigint |  |  |  |
+| `cache_read_tokens` | bigint |  |  |  |
+| `total_tokens` | bigint |  |  |  |
+| `cost_usd` | numeric_12_6 | Y |  |  |
+
+- UNIQUE `uq_usage_events_identity`: (user_id, service_id, occurred_at, model, total_tokens)
+- INDEX `ix_usage_events_service_time`: (service_id, occurred_at)
 
 ### `usage_snapshots`
 

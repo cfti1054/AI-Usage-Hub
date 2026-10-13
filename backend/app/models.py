@@ -144,6 +144,53 @@ class UsageSnapshot(Base):
     raw: Mapped[dict[str, Any] | None] = mapped_column(JsonType)
 
 
+class UsageImport(Base):
+    """CSV 업로드 1건의 이력. 삭제하면 이 업로드로 새로 추가된 이벤트만 함께 지운다."""
+
+    __tablename__ = "usage_imports"
+
+    id: Mapped[int] = mapped_column(BigId, primary_key=True)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))
+    service_id: Mapped[str] = mapped_column(ForeignKey("ai_services.id"))
+    filename: Mapped[str] = mapped_column(Text)
+    uploaded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    rows_total: Mapped[int] = mapped_column(Integer, default=0)
+    rows_added: Mapped[int] = mapped_column(Integer, default=0)
+    rows_duplicate: Mapped[int] = mapped_column(Integer, default=0)  # 이미 올린 행과 같은 요청
+    rows_invalid: Mapped[int] = mapped_column(Integer, default=0)
+    period_from: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))  # 파일의 가장 이른 시각
+    period_to: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))  # 파일의 가장 늦은 시각
+
+
+class UsageEvent(Base):
+    """요청 1건의 토큰 사용량 (CSV 업로드 등). 시각은 UTC 로 저장한다.
+
+    같은 요청이 여러 파일에 겹쳐 들어와도 (서비스, 시각, 모델, 총 토큰) 이 같으면 한 번만 저장한다.
+    """
+
+    __tablename__ = "usage_events"
+    __table_args__ = (
+        UniqueConstraint(
+            "user_id", "service_id", "occurred_at", "model", "total_tokens", name="uq_usage_events_identity"
+        ),
+        Index("ix_usage_events_service_time", "service_id", "occurred_at"),
+    )
+
+    id: Mapped[int] = mapped_column(BigId, primary_key=True)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))
+    service_id: Mapped[str] = mapped_column(ForeignKey("ai_services.id"))
+    import_id: Mapped[int] = mapped_column(BigId, ForeignKey("usage_imports.id", ondelete="CASCADE"))
+    occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    model: Mapped[str] = mapped_column(Text)
+    kind: Mapped[str | None] = mapped_column(Text)  # Cursor: 'Included' 등 과금 구분
+    input_tokens: Mapped[int] = mapped_column(BigInteger)  # 캐시 미사용 입력
+    output_tokens: Mapped[int] = mapped_column(BigInteger)
+    cache_creation_tokens: Mapped[int] = mapped_column(BigInteger)  # 캐시에 쓴 입력
+    cache_read_tokens: Mapped[int] = mapped_column(BigInteger)
+    total_tokens: Mapped[int] = mapped_column(BigInteger)
+    cost_usd: Mapped[Decimal | None] = mapped_column(Numeric(12, 6))  # 숫자 비용이 있을 때만
+
+
 class CostRecord(Base):
     """API 종량제 비용. 구독료는 subscriptions에서 계산하며 여기에 중복 저장하지 않는다."""
 

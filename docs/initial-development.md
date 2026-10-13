@@ -101,12 +101,13 @@ backend/
     reports.py · money.py  집계, 통화 환산
     fx.py              환율 자동 조회 (수출입은행 → Frankfurter 순서)
     erd.py             docs/erd.md 자동 생성
+    imports/           사용량 CSV 파서(Cursor)와 중복 제거 저장
   collector/           PC 에이전트 (Claude Code·Codex 파서, 설치 스크립트)
     seed.py            관리자 계정 + 1차 서비스 4종 (멱등)
     connectors/        __init__.py(레지스트리), base.py(인터페이스)
     routers/           auth, dashboard, services, subscriptions, usage, costs, sync_jobs, settings
-  migrations/          Alembic (0001_initial_schema, 0002_fx_auto, 0003_devices)
-  tests/               API·환율·기기·에이전트·ERD 테스트 34건
+  migrations/          Alembic (0001_initial_schema, 0002_fx_auto, 0003_devices, 0004_usage_imports)
+  tests/               API·환율·기기·에이전트·CSV·ERD 테스트 42건
   Dockerfile · railway.toml · pyproject.toml · uv.lock
 frontend/
   src/app/(app)/       page.tsx(대시보드), services/[id], costs, settings
@@ -198,6 +199,8 @@ class Connector(ABC):
 | POST | `/api/devices/{id}/rotate-token` | 토큰 재발급(이전 토큰 즉시 무효, 기기·기록 유지). 원문은 저장하지 않으므로 "토큰 다시 보기" 대신 사용 | 추가 |
 | POST | `/api/devices/{id}/revoke` | 기기 토큰 폐기 | 추가 |
 | POST | `/api/agent/usage` | **기기 토큰 인증**(`X-Device-Token`). 기기별 월·일 누계 덮어쓰기 업로드 | 추가 |
+| POST / GET | `/api/services/{id}/usage-imports` | 사용량 CSV 업로드(`{filename, content}`) / 업로드 이력. 현재 `cursor`만 지원 | 추가 |
+| DELETE | `/api/usage-imports/{id}` | 업로드 삭제(그 업로드로 추가된 요청만 제거) | 추가 |
 | POST | `/api/agent/heartbeat` | **기기 토큰 인증**. 온라인 신호 | 추가 |
 
 ---

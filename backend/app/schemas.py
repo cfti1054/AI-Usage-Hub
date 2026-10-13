@@ -215,6 +215,34 @@ class AgentUsageIn(BaseModel):
     snapshots: list[AgentSnapshotIn] = Field(max_length=500)
 
 
+# --- CSV imports ---
+MAX_IMPORT_CHARS = 5_000_000  # 약 5MB. Cursor 한 달 CSV 는 보통 수십~수백 KB
+
+
+class UsageImportIn(BaseModel):
+    filename: str = Field(default="upload.csv", max_length=200)
+    content: str = Field(min_length=1, max_length=MAX_IMPORT_CHARS)
+
+
+class UsageImportOut(ORM):
+    id: int
+    service_id: str
+    filename: str
+    uploaded_at: datetime
+    rows_total: int
+    rows_added: int
+    rows_duplicate: int
+    rows_invalid: int
+    period_from: datetime | None
+    period_to: datetime | None
+
+
+class UsageImportResult(BaseModel):
+    record: UsageImportOut
+    # 건너뛴 행의 사유 (최대 20개)
+    errors: list[str]
+
+
 # --- settings ---
 class SettingsIn(BaseModel):
     timezone: str | None = None

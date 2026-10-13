@@ -6,7 +6,8 @@ import { DeviceStatus } from "@/components/DeviceStatus";
 import { SourceBadge } from "@/components/SourceBadge";
 import { api, ApiError } from "@/lib/api";
 import { formatDateTime, formatMoney, formatNumber } from "@/lib/format";
-import type { ServiceUsage } from "@/lib/types";
+import { CsvImportPanel } from "@/components/CsvImportPanel";
+import type { ServiceUsage, UsageImport } from "@/lib/types";
 
 export default async function ServiceDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -16,6 +17,9 @@ export default async function ServiceDetailPage({ params }: { params: Promise<{ 
   });
   const { service } = data;
   const thisMonth = new Date().toISOString().slice(0, 7);
+  const imports = data.csv_import_supported
+    ? await api<UsageImport[]>(`/api/services/${encodeURIComponent(id)}/usage-imports`)
+    : [];
 
   return (
     <>
@@ -41,6 +45,43 @@ export default async function ServiceDetailPage({ params }: { params: Promise<{ 
       </header>
 
       <AutoRefresh seconds={60} />
+      {data.csv_import_supported && <CsvImportPanel serviceId={service.id} imports={imports} />}
+
+      {data.token_months.length > 0 && (
+        <section className="panel">
+          <h2 className="mb-2 text-sm font-medium text-slate-600">월별 토큰 사용량 (최근 12개월)</h2>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="text-left text-xs text-slate-500">
+                <tr>
+                  <th className="py-1">월</th>
+                  <th className="text-right">합계</th>
+                  <th className="text-right">입력</th>
+                  <th className="text-right">출력</th>
+                  <th className="text-right">캐시 생성</th>
+                  <th className="text-right">캐시 읽기</th>
+                  <th className="text-right">출처</th>
+                </tr>
+              </thead>
+              <tbody className="tabular-nums">
+                {data.token_months.map((m) => (
+                  <tr key={m.period} className="border-t border-slate-100">
+                    <td className="py-1.5">{m.period}</td>
+                    <td className="text-right font-medium">{m.total.toLocaleString("ko-KR")}</td>
+                    <td className="text-right">{m.input.toLocaleString("ko-KR")}</td>
+                    <td className="text-right">{m.output.toLocaleString("ko-KR")}</td>
+                    <td className="text-right">{m.cache_creation.toLocaleString("ko-KR")}</td>
+                    <td className="text-right">{m.cache_read.toLocaleString("ko-KR")}</td>
+                    <td className="text-right text-xs text-slate-500">
+                      {[m.devices ? "기기" : null, m.csv ? "CSV" : null].filter(Boolean).join(" + ")}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      )}
       {data.devices.length > 0 && (
         <section className="panel">
           <h2 className="mb-2 text-sm font-medium text-slate-600">기기별 이번 달 토큰 사용량</h2>

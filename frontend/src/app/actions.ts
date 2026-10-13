@@ -5,7 +5,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { api, ApiError, login, TOKEN_COOKIE } from "@/lib/api";
 import { toNum } from "@/lib/format";
-import type { Device, FxResult, Service, SyncJob } from "@/lib/types";
+import type { Device, FxResult, Service, SyncJob, UsageImport } from "@/lib/types";
 
 export interface ActionResult {
   ok: boolean;
@@ -192,6 +192,34 @@ export async function createDeviceAction(_: ActionResult | null, fd: FormData) {
       body: JSON.stringify({ name: str(fd, "name") }),
     });
     return { ok: true, message: `"${res.device.name}" 기기를 등록했습니다`, token: res.token };
+  });
+}
+
+const MAX_CSV_BYTES = 5_000_000; // 백엔드 한도(MAX_IMPORT_CHARS)와 같게
+
+export async function uploadCsvAction(_: ActionResult | null, fd: FormData): Promise<ActionResult> {
+  const file = fd.get("file");
+  if (!(file instanceof File) || file.size === 0) return { ok: false, message: "CSV 파일을 선택하세요" };
+  if (file.size > MAX_CSV_BYTES) return { ok: false, message: "파일이 너무 큽니다 (최대 5MB). 기간을 나눠서 올려 주세요" };
+  return run(async () => {
+    const res = await api<{ record: UsageImport; errors: string[] }>(
+      `/api/services/${str(fd, "service_id")}/usage-imports`,
+      { method: "POST", body: JSON.stringify({ filename: file.name, content: await file.text() }) },
+    );
+    const r = res.record;
+    const period = r.period_from && r.period_to ? ` · 기간 ${r.period_from.slice(0, 10)} ~ ${r.period_to.slice(0, 10)}` : "";
+    const errors = res.errors.length ? ` · 건너뛴 행: ${res.errors.slice(0, 3).join(", ")}` : "";
+    return {
+      ok: r.rows_invalid === 0,
+      message: `업로드 완료: ${r.rows_total}행 중 새로 추가 ${r.rows_added}, 이미 있던 요청 ${r.rows_duplicate}, 오류 ${r.rows_invalid}${period}${errors}`,
+    };
+  });
+}
+
+export async function deleteImportAction(_: ActionResult | null, fd: FormData) {
+  return run(async () => {
+    const res = await api<{ removed_events: number }>(`/api/usage-imports/${str(fd, "import_id")}`, { method: "DELETE" });
+    return `업로드를 삭제했습니다 (요청 ${res.removed_events}건 제거)`;
   });
 }
 

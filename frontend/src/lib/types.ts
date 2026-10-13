@@ -54,7 +54,9 @@ export interface Service {
 }
 
 export interface DeviceUsage {
-  device_id: number;
+  // 'device' = PC 에이전트, 'csv' = CSV 업로드 합계
+  kind?: "device" | "csv";
+  device_id: number | null;
   name: string;
   used_value: Num | null;
   captured_at: string;
@@ -148,8 +150,34 @@ export interface CostTrend {
   months: { period: string; by_service: Record<string, Num | null>; conversion_missing: boolean }[];
 }
 
+export interface TokenMonth {
+  period: string;
+  total: number;
+  input: number;
+  output: number;
+  cache_creation: number;
+  cache_read: number;
+  devices: number;
+  csv: number;
+}
+
+export interface UsageImport {
+  id: number;
+  service_id: string;
+  filename: string;
+  uploaded_at: string;
+  rows_total: number;
+  rows_added: number;
+  rows_duplicate: number;
+  rows_invalid: number;
+  period_from: string | null;
+  period_to: string | null;
+}
+
 export interface ServiceUsage {
   service: Service;
+  csv_import_supported: boolean;
+  token_months: TokenMonth[];
   devices: (DeviceUsage & { breakdown: Partial<Record<"input" | "output" | "cache_creation" | "cache_read", number>> | null })[];
   latest: Snapshot[];
   history: Snapshot[];

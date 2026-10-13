@@ -9,7 +9,7 @@ from app.config import get_settings
 from app.db import get_sessionmaker
 from app.deps import DbSession
 from app.models import UserSettings
-from app.routers import agent, auth, costs, dashboard, devices, services, settings, subscriptions, sync_jobs, usage
+from app.routers import agent, auth, costs, dashboard, devices, imports, services, settings, subscriptions, sync_jobs, usage
 
 logging.basicConfig(level=logging.INFO)
 
@@ -31,7 +31,7 @@ async def lifespan(_: FastAPI):
 
 app = FastAPI(title="AI Usage Hub API", version="0.1.0", lifespan=lifespan)
 
-for r in (auth, dashboard, services, subscriptions, usage, costs, sync_jobs, settings, devices, agent):
+for r in (auth, dashboard, services, subscriptions, usage, costs, sync_jobs, settings, devices, agent, imports):
     app.include_router(r.router)
 
 

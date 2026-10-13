@@ -7,11 +7,11 @@ from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.fx import SOURCE_LABELS
-from app.models import CostRecord, Device, Subscription, UsageSnapshot, UserSettings
+from app.models import CostRecord, Device, Subscription, UsageEvent, UsageImport, UsageSnapshot, UserSettings
 from app.money import convert, monthly_equivalent
 
 
@@ -72,6 +72,105 @@ def device_month_usage(db: Session, user_id: uuid.UUID, settings: UserSettings) 
             }
         )
     return dict(result)
+
+
+TOKEN_FIELDS = ("input", "output", "cache_creation", "cache_read")
+
+
+def month_bounds_utc(settings: UserSettings, start: date) -> tuple[datetime, datetime]:
+    """현지 시간 기준 한 달 [시작, 다음 달 시작) 을 UTC 로."""
+    tz = ZoneInfo(settings.timezone)
+    nxt = date(start.year + start.month // 12, start.month % 12 + 1, 1)
+    return (
+        datetime.combine(start, datetime.min.time(), tz).astimezone(UTC),
+        datetime.combine(nxt, datetime.min.time(), tz).astimezone(UTC),
+    )
+
+
+def _event_rows(db: Session, user_id: uuid.UUID, since: datetime, until: datetime, service_id: str | None = None):
+    query = select(UsageEvent).where(
+        UsageEvent.user_id == user_id, UsageEvent.occurred_at >= since, UsageEvent.occurred_at < until
+    )
+    if service_id:
+        query = query.where(UsageEvent.service_id == service_id)
+    return db.scalars(query)
+
+
+def _local_month(dt: datetime, tz: ZoneInfo) -> str:
+    return _aware(dt).astimezone(tz).strftime("%Y-%m")
+
+
+def event_month_usage(db: Session, user_id: uuid.UUID, settings: UserSettings) -> dict[str, dict]:
+    """서비스별 이번 달 CSV 업로드 토큰 합계와 마지막 업로드 시각."""
+    since, until = month_bounds_utc(settings, local_today(settings).replace(day=1))
+    totals: dict[str, dict] = {}
+    for e in _event_rows(db, user_id, since, until):
+        t = totals.setdefault(e.service_id, {"used_value": 0, "breakdown": dict.fromkeys(TOKEN_FIELDS, 0)})
+        t["used_value"] += e.total_tokens
+        b = t["breakdown"]
+        b["input"] += e.input_tokens
+        b["output"] += e.output_tokens
+        b["cache_creation"] += e.cache_creation_tokens
+        b["cache_read"] += e.cache_read_tokens
+    if totals:
+        last_upload = dict(
+            db.execute(
+                select(UsageImport.service_id, func.max(UsageImport.uploaded_at))
+                .where(UsageImport.user_id == user_id, UsageImport.service_id.in_(totals))
+                .group_by(UsageImport.service_id)
+            ).all()
+        )
+        for service_id, t in totals.items():
+            t["captured_at"] = last_upload.get(service_id)
+    return totals
+
+
+def token_months(db: Session, user_id: uuid.UUID, settings: UserSettings, service_id: str, months: int = 12) -> list[dict]:
+    """최근 N개월 토큰 합계 (기기 에이전트 + CSV 업로드). 데이터가 있는 달만, 최근 달부터."""
+    tz = ZoneInfo(settings.timezone)
+    end_period = current_period(settings)
+    periods = [shift_period(end_period, -i) for i in range(months)]
+    first = date.fromisoformat(periods[-1] + "-01")
+    rows: dict[str, dict] = {}
+
+    def bucket(period: str) -> dict:
+        return rows.setdefault(
+            period, {"period": period, "total": 0, **dict.fromkeys(TOKEN_FIELDS, 0), "devices": 0, "csv": 0}
+        )
+
+    device_rows = db.scalars(
+        select(UsageSnapshot).where(
+            UsageSnapshot.user_id == user_id,
+            UsageSnapshot.service_id == service_id,
+            UsageSnapshot.device_id.is_not(None),
+            UsageSnapshot.metric_code == MONTH_METRIC,
+            UsageSnapshot.period_start >= first,
+        )
+    )
+    for snap in device_rows:
+        period = snap.period_start.strftime("%Y-%m")
+        if period not in periods:
+            continue
+        b = bucket(period)
+        value = int(snap.used_value or 0)
+        b["total"] += value
+        b["devices"] += value
+        for key in TOKEN_FIELDS:
+            b[key] += int((snap.raw or {}).get(key, 0))
+
+    since, _ = month_bounds_utc(settings, first)
+    for e in _event_rows(db, user_id, since, datetime.now(UTC) + timedelta(days=1), service_id):
+        period = _local_month(e.occurred_at, tz)
+        if period not in periods:
+            continue
+        b = bucket(period)
+        b["total"] += e.total_tokens
+        b["csv"] += e.total_tokens
+        b["input"] += e.input_tokens
+        b["output"] += e.output_tokens
+        b["cache_creation"] += e.cache_creation_tokens
+        b["cache_read"] += e.cache_read_tokens
+    return [rows[p] for p in periods if p in rows]
 
 
 def local_today(settings: UserSettings) -> date:

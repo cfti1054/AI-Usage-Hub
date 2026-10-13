@@ -8,6 +8,7 @@ from app.connectors.base import ConnectorContext
 from app.credentials import delete_secret, get_secret, set_secret
 from app import reports
 from app.deps import CurrentUser, DbSession, get_user_settings
+from app.imports import PARSERS
 from app.models import AiService, CostRecord, ServiceCredential, SyncJob, UsageSnapshot
 from app.schemas import (
     ConnectionTestOut,
@@ -97,9 +98,13 @@ def service_usage(
         )
         .order_by(CostRecord.cost_date)
     ).all()
-    devices = reports.device_month_usage(db, user.id, get_user_settings(db, user)).get(service_id, [])
+    settings = get_user_settings(db, user)
+    devices = reports.device_month_usage(db, user.id, settings).get(service_id, [])
     return {
         "service": _to_out(db, service),
+        "csv_import_supported": service_id in PARSERS,
+        # 최근 12개월 토큰 합계 (기기 에이전트 + CSV 업로드)
+        "token_months": reports.token_months(db, user.id, settings, service_id),
         "devices": [
             {k: d[k] for k in ("device_id", "name", "used_value", "captured_at", "online", "revoked")}
             | {"breakdown": d["snapshot"].raw}

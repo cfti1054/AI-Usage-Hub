@@ -69,9 +69,9 @@ export function ServiceCard({ card, currency }: { card: ServiceCardData; currenc
       {card.devices.length > 0 && (
         <ul className="mt-2 space-y-0.5 text-xs text-slate-600">
           {card.devices.map((d) => (
-            <li key={d.device_id} className="flex items-center justify-between gap-2">
+            <li key={d.kind === "csv" ? "csv" : d.device_id} className="flex items-center justify-between gap-2">
               <span className="flex items-center gap-1.5">
-                <DeviceStatus online={d.online} revoked={d.revoked} /> {d.name}
+                {d.kind === "csv" ? <span className="rounded bg-amber-50 px-1 text-[10px] text-amber-700 ring-1 ring-amber-200">CSV</span> : <DeviceStatus online={d.online} revoked={d.revoked} />} {d.name}
               </span>
               <span className="tabular-nums">{formatNumber(d.used_value)}</span>
             </li>
