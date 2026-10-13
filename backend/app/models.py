@@ -97,17 +97,39 @@ class Subscription(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
+class Device(Base):
+    """사용량 에이전트를 실행하는 기기(PC). 토큰은 SHA-256 해시만 저장한다."""
+
+    __tablename__ = "devices"
+    __table_args__ = (UniqueConstraint("user_id", "name", name="uq_devices_user_name"),)
+
+    id: Mapped[int] = mapped_column(BigId, primary_key=True)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))
+    name: Mapped[str] = mapped_column(Text)
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))  # 마지막 업로드·신호
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))  # 폐기 시각 (이후 업로드 거부)
+
+
 class UsageSnapshot(Base):
     __tablename__ = "usage_snapshots"
     __table_args__ = (
         CheckConstraint("status IN ('ok', 'unavailable')", name="ck_usage_snapshots_status"),
         CheckConstraint("source_type IN ('api', 'cli', 'manual')", name="ck_usage_snapshots_source"),
         Index("ix_usage_snapshots_service_captured", "service_id", "captured_at"),
+        # 기기 에이전트 값은 (기기, 서비스, 지표, 기간 시작) 단위로 덮어쓴다. device_id 가 NULL 인
+        # 수동 입력 행은 NULL 끼리 서로 다른 값으로 취급되어 이 제약에 걸리지 않는다
+        UniqueConstraint(
+            "device_id", "service_id", "metric_code", "period_start", name="uq_usage_snapshots_device_bucket"
+        ),
     )
 
     id: Mapped[int] = mapped_column(BigId, primary_key=True)
     user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))
     service_id: Mapped[str] = mapped_column(ForeignKey("ai_services.id"))
+    # 기기 에이전트가 올린 값이면 해당 기기. 수동 입력·API 커넥터 값은 NULL
+    device_id: Mapped[int | None] = mapped_column(BigId, ForeignKey("devices.id"))
     metric_code: Mapped[str] = mapped_column(Text)  # 'tokens' | 'requests' | 'credits' | 'session' | ...
     # 수집 불가 시 0이 아니라 NULL + status='unavailable'로 저장한다
     used_value: Mapped[Decimal | None] = mapped_column(Numeric)

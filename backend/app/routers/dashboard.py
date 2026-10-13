@@ -54,14 +54,30 @@ def summary(db: DbSession, user: CurrentUser) -> dict:
 
     stale_after = timedelta(minutes=settings.sync_interval_minutes * 2)
     now = datetime.now(UTC)
+    device_usage = reports.device_month_usage(db, user.id, settings)
     cards = []
     for service in services:
-        snap = db.scalar(
-            select(UsageSnapshot)
-            .where(UsageSnapshot.user_id == user.id, UsageSnapshot.service_id == service.id)
-            .order_by(UsageSnapshot.captured_at.desc())
-            .limit(1)
-        )
+        devices = device_usage.get(service.id, [])
+        if devices:
+            # 기기 에이전트 값이 있으면 기기별 이번 달 누계를 합산해 하나의 사용량으로 보여준다
+            latest = max(devices, key=lambda d: _aware(d["captured_at"]))["snapshot"]
+            snap = latest
+            usage = SnapshotOut.model_validate(latest).model_copy(
+                update={"used_value": sum((d["used_value"] or 0 for d in devices), Decimal(0))}
+            )
+        else:
+            # 기기 값(지난달 누계·일별 행 포함)은 제외하고 수동 입력·API 값 중 최신 1건
+            snap = db.scalar(
+                select(UsageSnapshot)
+                .where(
+                    UsageSnapshot.user_id == user.id,
+                    UsageSnapshot.service_id == service.id,
+                    UsageSnapshot.device_id.is_(None),
+                )
+                .order_by(UsageSnapshot.captured_at.desc())
+                .limit(1)
+            )
+            usage = SnapshotOut.model_validate(snap) if snap else None
         job = db.scalar(
             select(SyncJob).where(SyncJob.service_id == service.id).order_by(SyncJob.started_at.desc()).limit(1)
         )
@@ -78,8 +94,12 @@ def summary(db: DbSession, user: CurrentUser) -> dict:
                 "has_credential": db.get(ServiceCredential, service.id) is not None,
                 "subscription": SubscriptionOut.model_validate(sub) if sub else None,
                 "subscription_monthly": reports.subscription_monthly(sub, settings) if sub else None,
-                "usage": SnapshotOut.model_validate(snap) if snap else None,
-                "usage_rate": _usage_rate(snap),
+                "usage": usage,
+                "usage_rate": _usage_rate(snap) if not devices else None,
+                "devices": [
+                    {k: d[k] for k in ("device_id", "name", "used_value", "captured_at", "online", "revoked")}
+                    for d in devices
+                ],
                 "month_api_cost": api_cost.total if api_cost else None,
                 "last_sync": SyncJobOut.model_validate(job) if job else None,
                 "data_state": state,

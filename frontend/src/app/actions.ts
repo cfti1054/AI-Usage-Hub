@@ -5,11 +5,13 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { api, ApiError, login, TOKEN_COOKIE } from "@/lib/api";
 import { toNum } from "@/lib/format";
-import type { FxResult, Service, SyncJob } from "@/lib/types";
+import type { Device, FxResult, Service, SyncJob } from "@/lib/types";
 
 export interface ActionResult {
   ok: boolean;
   message: string;
+  // 기기 등록 직후 한 번만 내려오는 기기 토큰
+  token?: string;
 }
 
 const str = (fd: FormData, key: string) => {
@@ -180,6 +182,36 @@ export async function saveSettingsAction(_: ActionResult | null, fd: FormData) {
       }),
     });
     return "설정을 저장했습니다";
+  });
+}
+
+export async function createDeviceAction(_: ActionResult | null, fd: FormData) {
+  return run(async () => {
+    const res = await api<{ device: Device; token: string }>("/api/devices", {
+      method: "POST",
+      body: JSON.stringify({ name: str(fd, "name") }),
+    });
+    return { ok: true, message: `"${res.device.name}" 기기를 등록했습니다`, token: res.token };
+  });
+}
+
+export async function rotateDeviceTokenAction(_: ActionResult | null, fd: FormData) {
+  return run(async () => {
+    const res = await api<{ device: Device; token: string }>(`/api/devices/${str(fd, "device_id")}/rotate-token`, {
+      method: "POST",
+    });
+    return {
+      ok: true,
+      message: `"${res.device.name}" 기기 토큰을 재발급했습니다. 이전 토큰은 더 이상 쓸 수 없습니다`,
+      token: res.token,
+    };
+  });
+}
+
+export async function revokeDeviceAction(_: ActionResult | null, fd: FormData) {
+  return run(async () => {
+    await api(`/api/devices/${str(fd, "device_id")}/revoke`, { method: "POST" });
+    return "기기 토큰을 폐기했습니다. 이 기기의 에이전트는 더 이상 업로드할 수 없습니다";
   });
 }
 

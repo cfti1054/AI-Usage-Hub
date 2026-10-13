@@ -3,7 +3,7 @@
 import uuid
 from collections import defaultdict
 from dataclasses import dataclass
-from datetime import date, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from zoneinfo import ZoneInfo
 
@@ -11,7 +11,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.fx import SOURCE_LABELS
-from app.models import CostRecord, Subscription, UserSettings
+from app.models import CostRecord, Device, Subscription, UsageSnapshot, UserSettings
 from app.money import convert, monthly_equivalent
 
 
@@ -27,6 +27,51 @@ def fx_info(settings: UserSettings) -> dict | None:
         "source_label": SOURCE_LABELS.get(settings.fx_source or "", settings.fx_source),
         "updated_at": settings.fx_updated_at,
     }
+
+
+# 에이전트는 값이 바뀌면 1분 안에, 바뀌지 않아도 5분마다 신호를 보낸다
+ONLINE_WINDOW = timedelta(minutes=7)
+MONTH_METRIC = "tokens_month"
+
+
+def _aware(dt: datetime) -> datetime:
+    return dt if dt.tzinfo else dt.replace(tzinfo=UTC)
+
+
+def is_online(device: Device, now: datetime | None = None) -> bool:
+    if device.revoked_at is not None or device.last_seen_at is None:
+        return False
+    return (now or datetime.now(UTC)) - _aware(device.last_seen_at) <= ONLINE_WINDOW
+
+
+def device_month_usage(db: Session, user_id: uuid.UUID, settings: UserSettings) -> dict[str, list[dict]]:
+    """서비스별 → 기기별 이번 달 누계. 기기마다 하나의 행만 있으므로 그대로 합산하면 된다."""
+    month_start = local_today(settings).replace(day=1)
+    rows = db.execute(
+        select(UsageSnapshot, Device)
+        .join(Device, UsageSnapshot.device_id == Device.id)
+        .where(
+            UsageSnapshot.user_id == user_id,
+            UsageSnapshot.metric_code == MONTH_METRIC,
+            UsageSnapshot.period_start == month_start,
+        )
+        .order_by(Device.name)
+    ).all()
+    now = datetime.now(UTC)
+    result: dict[str, list[dict]] = defaultdict(list)
+    for snap, device in rows:
+        result[snap.service_id].append(
+            {
+                "device_id": device.id,
+                "name": device.name,
+                "used_value": snap.used_value,
+                "captured_at": snap.captured_at,
+                "online": is_online(device, now),
+                "revoked": device.revoked_at is not None,
+                "snapshot": snap,
+            }
+        )
+    return dict(result)
 
 
 def local_today(settings: UserSettings) -> date:

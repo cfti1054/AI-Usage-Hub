@@ -1,5 +1,6 @@
 import { syncAllAction } from "@/app/actions";
 import { ActionForm, SubmitButton } from "@/components/ActionForm";
+import { AutoRefresh } from "@/components/AutoRefresh";
 import { CostDonut, DailyCostBars } from "@/components/charts";
 import { ServiceCard } from "@/components/ServiceCard";
 import { SummaryStats } from "@/components/SummaryStats";
@@ -23,8 +24,9 @@ export default async function DashboardPage() {
         <div>
           <h1 className="text-xl font-semibold">대시보드</h1>
           <p className="text-sm text-slate-500">
-            {summary.period} · 마지막 수집 {fromNow(summary.last_synced_at)}
+            {summary.period} · 마지막 수집 {fromNow(summary.last_synced_at)} · 1분마다 자동 갱신
           </p>
+          <AutoRefresh seconds={60} />
         </div>
         <ActionForm action={syncAllAction} className="flex items-center gap-2">
           <SubmitButton variant="secondary">새로고침</SubmitButton>

@@ -6,7 +6,8 @@ from sqlalchemy import select
 from app.connectors import get_connector
 from app.connectors.base import ConnectorContext
 from app.credentials import delete_secret, get_secret, set_secret
-from app.deps import CurrentUser, DbSession
+from app import reports
+from app.deps import CurrentUser, DbSession, get_user_settings
 from app.models import AiService, CostRecord, ServiceCredential, SyncJob, UsageSnapshot
 from app.schemas import (
     ConnectionTestOut,
@@ -76,6 +77,8 @@ def service_usage(
             UsageSnapshot.user_id == user.id,
             UsageSnapshot.service_id == service_id,
             UsageSnapshot.captured_at >= since,
+            # 기기 에이전트 값은 아래 "devices" 에서 기기별로 따로 보여준다
+            UsageSnapshot.device_id.is_(None),
         )
         .order_by(UsageSnapshot.captured_at)
     ).all()
@@ -94,8 +97,14 @@ def service_usage(
         )
         .order_by(CostRecord.cost_date)
     ).all()
+    devices = reports.device_month_usage(db, user.id, get_user_settings(db, user)).get(service_id, [])
     return {
         "service": _to_out(db, service),
+        "devices": [
+            {k: d[k] for k in ("device_id", "name", "used_value", "captured_at", "online", "revoked")}
+            | {"breakdown": d["snapshot"].raw}
+            for d in devices
+        ],
         "latest": [SnapshotOut.model_validate(s) for s in latest.values()],
         "history": [SnapshotOut.model_validate(s) for s in history],
         "recent_jobs": [SyncJobOut.model_validate(j) for j in jobs],

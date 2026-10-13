@@ -45,6 +45,18 @@ def decode_access_token(token: str) -> str | None:
     return payload.get("sub")
 
 
+DEVICE_TOKEN_PREFIX = "aihub_dev_"
+
+
+def new_device_token() -> str:
+    return DEVICE_TOKEN_PREFIX + secrets.token_urlsafe(32)
+
+
+def hash_device_token(token: str) -> str:
+    # 무작위 256비트 토큰이라 솔트 없는 SHA-256 으로 충분하다 (조회 키로도 사용)
+    return hashlib.sha256(token.encode()).hexdigest()
+
+
 def _fernet() -> Fernet:
     return Fernet(get_settings().credentials_key.encode())
 

@@ -25,15 +25,17 @@ AI Usage Hub의 데이터베이스 구조입니다. 운영 DB는 Railway Postgre
 | `ai_services` | 서비스 목록 | `collection_method`는 화면의 API/CLI/수동 뱃지. `connector`가 있어야 자동 수집 대상 |
 | `service_credentials` | 서비스 API 키 | Fernet으로 암호화해 저장. 화면에는 끝 4자리만 노출 |
 | `subscriptions` | 구독 요금제 | 월 구독료 합계와 갱신 D-day의 원천. API 비용과 섞지 않음 |
-| `usage_snapshots` | 시점별 사용량 | 수동 입력, 로컬 수집기(CLI), 커넥터(API)가 기록. 대시보드는 서비스별 최신 1건 표시 |
+| `usage_snapshots` | 시점별 사용량 | 수동 입력·API 커넥터 값은 `device_id`가 NULL이며 대시보드는 그중 최신 1건을 표시. 기기 에이전트 값은 `device_id`가 있고 (기기, 서비스, 지표, 기간 시작) 단위로 덮어쓰며, 대시보드는 기기별 이번 달 누계(`tokens_month`)를 합산 |
 | `cost_records` | API 종량제 비용 | 일 단위(API) 또는 월 단위(수동). 같은 버킷은 덮어씀(upsert) |
 | `sync_jobs` | 수집 이력 | 성공/실패, 오류 메시지(API 키 마스킹), 수동/자동 실행 구분 |
+| `devices` | 사용량 에이전트를 실행하는 기기(PC) | 기기 토큰은 SHA-256 해시만 저장. `last_seen_at`으로 온라인 여부, `revoked_at`으로 폐기 표시 |
 
 ## 데이터 규칙
 
 - **값이 없으면 0이 아니라 NULL**: `usage_snapshots.used_value`가 NULL이고 `status='unavailable'`이면 "수집 불가"로 표시합니다.
 - **구독료와 API 비용 분리**: 구독료는 `subscriptions`에서만 계산하고, `cost_records`에는 API 비용만 둡니다.
 - **원 통화 보존**: 금액은 원래 통화로 저장하고, 화면에서 `user_settings`의 환율로 환산합니다. `cost_records.exchange_rate`가 있으면 그 값이 우선합니다.
+- **기기 값 합산**: 같은 서비스의 기기 값은 기기마다 이번 달 누계 1행만 유지하므로 그대로 더하면 됩니다. 폐기한 기기의 값도 실제 사용분이라 합계에 남습니다.
 - **출처 기록**: `usage_snapshots`, `cost_records`, `sync_jobs`의 `source_type`(api/cli/manual)으로 데이터가 어디서 왔는지 구분합니다.
 - **평문 비밀 금지**: 비밀번호는 scrypt 해시, 서비스 API 키는 Fernet 암호문으로만 저장합니다.
 
@@ -43,24 +45,27 @@ AI Usage Hub의 데이터베이스 구조입니다. 운영 DB는 Railway Postgre
 |---|---|---|
 | 0001 | `backend/migrations/versions/0001_initial_schema.py` | 초기 스키마 8개 테이블 |
 | 0002 | `backend/migrations/versions/0002_fx_auto.py` | `user_settings`에 `fx_mode`, `fx_source`, `fx_updated_at` 추가. 기존 직접 입력 환율은 manual 모드로 보존 |
+| 0003 | `backend/migrations/versions/0003_devices.py` | `devices` 테이블 추가, `usage_snapshots.device_id`와 기기별 덮어쓰기용 유니크 제약 추가 |
 
 ## ERD와 테이블 명세
 
 <!-- ERD:BEGIN — app/models.py 에서 자동 생성. 직접 수정하지 말고 `uv run python -m app.erd` 실행 -->
 
-테이블 8개. 타입은 PostgreSQL 기준입니다.
+테이블 9개. 타입은 PostgreSQL 기준입니다.
 
 ```mermaid
 erDiagram
     users ||--o{ cost_records : "user_id"
     ai_services ||--o{ cost_records : "service_id"
+    users ||--o{ devices : "user_id"
     ai_services ||--o| service_credentials : "service_id"
     users ||--o{ subscriptions : "user_id"
     ai_services ||--o{ subscriptions : "service_id"
     ai_services ||--o{ sync_jobs : "service_id"
+    users ||--o| user_settings : "user_id"
     users ||--o{ usage_snapshots : "user_id"
     ai_services ||--o{ usage_snapshots : "service_id"
-    users ||--o| user_settings : "user_id"
+    devices ||--o{ usage_snapshots : "device_id"
     ai_services {
         text id PK
         text name
@@ -89,6 +94,15 @@ erDiagram
         varchar_7 billing_period
         text source_type
         timestamptz recorded_at
+    }
+    devices {
+        bigserial id PK
+        uuid user_id FK
+        text name
+        varchar_64 token_hash UK
+        timestamptz created_at
+        timestamptz last_seen_at "NULL"
+        timestamptz revoked_at "NULL"
     }
     service_credentials {
         text service_id PK, FK
@@ -119,22 +133,6 @@ erDiagram
         text source_type
         text trigger
     }
-    usage_snapshots {
-        bigserial id PK
-        uuid user_id FK
-        text service_id FK
-        text metric_code
-        numeric used_value "NULL"
-        numeric limit_value "NULL"
-        text unit "NULL"
-        text status
-        date period_start "NULL"
-        date period_end "NULL"
-        timestamptz resets_at "NULL"
-        text source_type
-        timestamptz captured_at
-        jsonb raw "NULL"
-    }
     user_settings {
         uuid user_id PK, FK
         text timezone
@@ -146,6 +144,23 @@ erDiagram
         text fx_source "NULL"
         timestamptz fx_updated_at "NULL"
         integer sync_interval_minutes
+    }
+    usage_snapshots {
+        bigserial id PK
+        uuid user_id FK
+        text service_id FK
+        bigint device_id FK "NULL"
+        text metric_code
+        numeric used_value "NULL"
+        numeric limit_value "NULL"
+        text unit "NULL"
+        text status
+        date period_start "NULL"
+        date period_end "NULL"
+        timestamptz resets_at "NULL"
+        text source_type
+        timestamptz captured_at
+        jsonb raw "NULL"
     }
 ```
 
@@ -194,6 +209,20 @@ erDiagram
 - UNIQUE `uq_cost_records_bucket`: (user_id, service_id, cost_type, source_type, granularity, cost_date)
 - INDEX `ix_cost_records_period`: (billing_period)
 
+### `devices`
+
+| 컬럼 | 타입 | NULL | 기본값 | 키 |
+|---|---|---|---|---|
+| `id` | bigserial |  |  | PK |
+| `user_id` | uuid |  |  | FK → `users.id` |
+| `name` | text |  |  |  |
+| `token_hash` | varchar_64 |  |  | UK |
+| `created_at` | timestamptz |  | `now()` |  |
+| `last_seen_at` | timestamptz | Y |  |  |
+| `revoked_at` | timestamptz | Y |  |  |
+
+- UNIQUE `uq_devices_user_name`: (user_id, name)
+
 ### `service_credentials`
 
 | 컬럼 | 타입 | NULL | 기본값 | 키 |
@@ -237,29 +266,6 @@ erDiagram
 - CHECK `ck_sync_jobs_status`: `status IN ('running', 'success', 'failed', 'partial')`
 - INDEX `ix_sync_jobs_service_started`: (service_id, started_at)
 
-### `usage_snapshots`
-
-| 컬럼 | 타입 | NULL | 기본값 | 키 |
-|---|---|---|---|---|
-| `id` | bigserial |  |  | PK |
-| `user_id` | uuid |  |  | FK → `users.id` |
-| `service_id` | text |  |  | FK → `ai_services.id` |
-| `metric_code` | text |  |  |  |
-| `used_value` | numeric | Y |  |  |
-| `limit_value` | numeric | Y |  |  |
-| `unit` | text | Y |  |  |
-| `status` | text |  | `'ok'` |  |
-| `period_start` | date | Y |  |  |
-| `period_end` | date | Y |  |  |
-| `resets_at` | timestamptz | Y |  |  |
-| `source_type` | text |  |  |  |
-| `captured_at` | timestamptz |  | `now()` |  |
-| `raw` | jsonb | Y |  |  |
-
-- CHECK `ck_usage_snapshots_source`: `source_type IN ('api', 'cli', 'manual')`
-- CHECK `ck_usage_snapshots_status`: `status IN ('ok', 'unavailable')`
-- INDEX `ix_usage_snapshots_service_captured`: (service_id, captured_at)
-
 ### `user_settings`
 
 | 컬럼 | 타입 | NULL | 기본값 | 키 |
@@ -276,5 +282,30 @@ erDiagram
 | `sync_interval_minutes` | integer |  | `60` |  |
 
 - CHECK `ck_user_settings_fx_mode`: `fx_mode IN ('auto', 'manual')`
+
+### `usage_snapshots`
+
+| 컬럼 | 타입 | NULL | 기본값 | 키 |
+|---|---|---|---|---|
+| `id` | bigserial |  |  | PK |
+| `user_id` | uuid |  |  | FK → `users.id` |
+| `service_id` | text |  |  | FK → `ai_services.id` |
+| `device_id` | bigint | Y |  | FK → `devices.id` |
+| `metric_code` | text |  |  |  |
+| `used_value` | numeric | Y |  |  |
+| `limit_value` | numeric | Y |  |  |
+| `unit` | text | Y |  |  |
+| `status` | text |  | `'ok'` |  |
+| `period_start` | date | Y |  |  |
+| `period_end` | date | Y |  |  |
+| `resets_at` | timestamptz | Y |  |  |
+| `source_type` | text |  |  |  |
+| `captured_at` | timestamptz |  | `now()` |  |
+| `raw` | jsonb | Y |  |  |
+
+- CHECK `ck_usage_snapshots_source`: `source_type IN ('api', 'cli', 'manual')`
+- CHECK `ck_usage_snapshots_status`: `status IN ('ok', 'unavailable')`
+- UNIQUE `uq_usage_snapshots_device_bucket`: (device_id, service_id, metric_code, period_start)
+- INDEX `ix_usage_snapshots_service_captured`: (service_id, captured_at)
 
 <!-- ERD:END -->

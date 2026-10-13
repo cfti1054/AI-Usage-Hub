@@ -9,18 +9,22 @@ import {
   toggleServiceAction,
 } from "@/app/actions";
 import { ActionForm, SubmitButton } from "@/components/ActionForm";
+import { DeviceManager } from "@/components/DeviceManager";
 import { FxSettings } from "@/components/FxSettings";
 import { SourceBadge } from "@/components/SourceBadge";
 import { api } from "@/lib/api";
 import { formatMoney } from "@/lib/format";
-import type { Service, Subscription, UserSettings } from "@/lib/types";
+import type { Device, Service, Subscription, UserSettings } from "@/lib/types";
 
 export default async function SettingsPage() {
-  const [services, subscriptions, settings] = await Promise.all([
+  const [services, subscriptions, settings, devices] = await Promise.all([
     api<Service[]>("/api/services"),
     api<Subscription[]>("/api/subscriptions"),
     api<UserSettings>("/api/settings"),
+    api<Device[]>("/api/devices"),
   ]);
+  // 에이전트 설정 명령에 넣을 백엔드 주소 (비밀 값이 아니며 에이전트가 직접 접속하는 주소)
+  const serverUrl = process.env.API_BASE_URL ?? "http://localhost:8000";
   const names = Object.fromEntries(services.map((s) => [s.id, s.name]));
 
   return (
@@ -88,6 +92,17 @@ export default async function SettingsPage() {
             <SubmitButton>추가</SubmitButton>
           </ActionForm>
         </details>
+      </section>
+
+      <section className="panel space-y-3">
+        <div>
+          <h2 className="text-sm font-medium text-slate-600">기기 관리</h2>
+          <p className="text-xs text-slate-500">
+            Claude Code·Codex를 쓰는 PC를 등록하면, 그 PC의 에이전트가 1분 단위로 토큰 사용량을 올리고 대시보드에서 기기별로 합산됩니다.
+            휴대폰 앱·웹 사용량은 PC 로그가 없어 포함되지 않습니다.
+          </p>
+        </div>
+        <DeviceManager devices={devices} serverUrl={serverUrl} />
       </section>
 
       <section className="panel space-y-3">

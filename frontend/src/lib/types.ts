@@ -53,6 +53,25 @@ export interface Service {
   credential_hint: string | null;
 }
 
+export interface DeviceUsage {
+  device_id: number;
+  name: string;
+  used_value: Num | null;
+  captured_at: string;
+  online: boolean;
+  revoked: boolean;
+}
+
+export interface Device {
+  id: number;
+  name: string;
+  created_at: string;
+  last_seen_at: string | null;
+  revoked_at: string | null;
+  online: boolean;
+  month_usage: Record<string, Num>;
+}
+
 export interface ServiceCardData {
   id: string;
   name: string;
@@ -68,6 +87,8 @@ export interface ServiceCardData {
   last_sync: SyncJob | null;
   data_state: DataState;
   stale: boolean;
+  // 기기 에이전트 값이 있으면 기기별 이번 달 누계 (usage.used_value 는 그 합계)
+  devices: DeviceUsage[];
 }
 
 export type FxMode = "auto" | "manual";
@@ -129,6 +150,7 @@ export interface CostTrend {
 
 export interface ServiceUsage {
   service: Service;
+  devices: (DeviceUsage & { breakdown: Partial<Record<"input" | "output" | "cache_creation" | "cache_read", number>> | null })[];
   latest: Snapshot[];
   history: Snapshot[];
   recent_jobs: SyncJob[];

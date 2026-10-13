@@ -163,6 +163,58 @@ class ManualEntryOut(BaseModel):
     cost_record_id: int | None
 
 
+# --- devices / agent ---
+class DeviceCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=50)
+
+    @field_validator("name")
+    @classmethod
+    def strip_name(cls, v: str) -> str:
+        v = v.strip()
+        if not v:
+            raise ValueError("기기 이름을 입력하세요")
+        return v
+
+
+class DeviceOut(ORM):
+    id: int
+    name: str
+    created_at: datetime
+    last_seen_at: datetime | None
+    revoked_at: datetime | None
+    online: bool = False
+    # 서비스별 이번 달 누계 (예: {"claude-code": 1234})
+    month_usage: dict[str, Decimal] = {}
+
+
+class DeviceCreated(BaseModel):
+    device: DeviceOut
+    # 이 응답에서 한 번만 내려준다. 서버에는 해시만 저장됨
+    token: str
+
+
+class AgentSnapshotIn(BaseModel):
+    service_id: str
+    metric_code: Literal["tokens_month", "tokens_day"]
+    used_value: Decimal = Field(ge=0)
+    unit: str = "tokens"
+    period_start: date
+    period_end: date
+    raw: dict | None = None
+
+    @field_validator("period_end")
+    @classmethod
+    def check_period(cls, v: date, info) -> date:
+        start = info.data.get("period_start")
+        if start and v < start:
+            raise ValueError("period_end 는 period_start 이후여야 합니다")
+        return v
+
+
+class AgentUsageIn(BaseModel):
+    snapshots: list[AgentSnapshotIn] = Field(max_length=500)
+
+
 # --- settings ---
 class SettingsIn(BaseModel):
     timezone: str | None = None

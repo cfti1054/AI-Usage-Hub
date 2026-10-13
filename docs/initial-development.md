@@ -101,12 +101,12 @@ backend/
     reports.py · money.py  집계, 통화 환산
     fx.py              환율 자동 조회 (수출입은행 → Frankfurter 순서)
     erd.py             docs/erd.md 자동 생성
-  collector/           Claude Code 토큰 사용량 로컬 수집기
+  collector/           PC 에이전트 (Claude Code·Codex 파서, 설치 스크립트)
     seed.py            관리자 계정 + 1차 서비스 4종 (멱등)
     connectors/        __init__.py(레지스트리), base.py(인터페이스)
     routers/           auth, dashboard, services, subscriptions, usage, costs, sync_jobs, settings
-  migrations/          Alembic (0001_initial_schema, 0002_fx_auto)
-  tests/               API·환율·수집기·ERD 테스트 22건
+  migrations/          Alembic (0001_initial_schema, 0002_fx_auto, 0003_devices)
+  tests/               API·환율·기기·에이전트·ERD 테스트 34건
   Dockerfile · railway.toml · pyproject.toml · uv.lock
 frontend/
   src/app/(app)/       page.tsx(대시보드), services/[id], costs, settings
@@ -174,7 +174,7 @@ class Connector(ABC):
 
 ## 6. API 엔드포인트 (구현 완료)
 
-`/health`와 `/api/auth/login`을 제외한 모든 엔드포인트는 `Authorization: Bearer <JWT>`가 필요합니다.
+`/health`, `/api/auth/login`, `/api/agent/*`를 제외한 모든 엔드포인트는 `Authorization: Bearer <JWT>`가 필요합니다. `/api/agent/*`는 기기 토큰으로 인증합니다.
 
 | Method | Endpoint | 설명 | 기획서 |
 |---|---|---|---|
@@ -194,6 +194,11 @@ class Connector(ABC):
 | GET / PUT | `/api/settings` | 통화, 시간대, 알림 임계치, 수집 주기 | 추가 |
 | PUT | `/api/settings/fx` | 환율 모드 전환 (`{"mode":"auto"}` 또는 `{"mode":"manual","fx_usd_krw":…,"fx_rate_date":…}`). auto로 바꾸면 즉시 조회 | 추가 |
 | POST | `/api/settings/fx/refresh` | 자동 모드에서 즉시 재조회 (직접 입력 모드면 409) | 추가 |
+| GET / POST | `/api/devices` | 기기 목록(온라인 여부·이번 달 사용량) / 기기 등록(기기 토큰 1회 반환) | 추가 |
+| POST | `/api/devices/{id}/rotate-token` | 토큰 재발급(이전 토큰 즉시 무효, 기기·기록 유지). 원문은 저장하지 않으므로 "토큰 다시 보기" 대신 사용 | 추가 |
+| POST | `/api/devices/{id}/revoke` | 기기 토큰 폐기 | 추가 |
+| POST | `/api/agent/usage` | **기기 토큰 인증**(`X-Device-Token`). 기기별 월·일 누계 덮어쓰기 업로드 | 추가 |
+| POST | `/api/agent/heartbeat` | **기기 토큰 인증**. 온라인 신호 | 추가 |
 
 ---
 
@@ -308,44 +313,61 @@ npm run dev                   # http://localhost:3000
 
 ---
 
-## 12. Claude Code 토큰 사용량 로컬 수집기
+## 12. 기기 등록과 PC 에이전트 (Claude Code·Codex)
 
-Claude Code 세션 로그(`~/.claude/projects/**/*.jsonl`)를 읽어 이번 달 토큰 누계를 서버에 올립니다. 서버는 클라우드에서 PC 로그에 접근할 수 없으므로, PC에서 직접 실행합니다. 코드는 `backend/collector/claude_code.py`이며 표준 라이브러리만 사용합니다.
+서버(Railway)는 공유기·방화벽 뒤에 있는 PC에 접속할 수 없으므로, **PC에서 상주하는 에이전트가 서버로 보내는(push) 구조**를 씁니다. 사용 방법은 [user-guide.md](user-guide.md) 8장에 있습니다.
 
-### 12.1 집계 규칙
-- 어시스턴트 메시지의 `usage`를 집계합니다. 입력, 출력, 캐시 생성, 캐시 읽기 네 항목을 각각 저장합니다.
-- 같은 `message.id`가 여러 줄에 반복되므로 **메시지 ID 기준으로 한 번만** 셉니다. 실제 로그에서 1973건이 고유 메시지 754개였습니다.
-- 날짜는 `AIHUB_TZ`(기본 Asia/Seoul) 기준이며, 이번 달과 오늘을 따로 계산합니다. 지난달과 미래 날짜는 제외합니다.
-- 서버에는 **이번 달 누계 스냅샷**(`metric_code=tokens_month`, `source_type=cli`)을 보냅니다. 대시보드는 최신 스냅샷을 보여주므로 한 번만 올라가도 현재 값이 표시됩니다.
-- 총합(`used_value`)은 네 항목의 합계입니다. 캐시 읽기 토큰은 비용이 매우 낮지만 토큰 수로는 크게 잡히므로, 총합이 실제 "체감 사용량"보다 크게 보일 수 있습니다. 필요하면 입력+출력만 보내도록 바꿀 수 있습니다.
-
-### 12.2 실행 방법
-```powershell
-cd C:\Users\cfti1\Documents\GitHub\AI-Usage-Hub\backend
-
-# 1) 집계만 확인 (서버 전송 없음)
-uv run python -m collector.claude_code --dry-run
-
-# 2) 업로드 (환경변수 필요)
-$env:AIHUB_URL = "https://ai-usage-hub-production.up.railway.app"
-$env:AIHUB_EMAIL = "<대시보드 로그인 이메일>"
-$env:AIHUB_PASSWORD = "<대시보드 로그인 비밀번호>"
-uv run python -m collector.claude_code
+```
+[설정 → 기기 관리] 기기 등록 → 기기 토큰 1회 발급 (서버에는 SHA-256 해시만 저장)
+[PC 에이전트] 로그인 시 자동 시작(Windows 작업 스케줄러 / macOS launchd, 창 없음)
+   1분마다 로그 집계 → 값이 바뀌면 POST /api/agent/usage, 아니면 5분마다 POST /api/agent/heartbeat
+[서버] (기기, 서비스, 지표, 기간 시작) 단위로 덮어쓰기 → 기기별 이번 달 누계 합산
+[대시보드] 1분마다 자동 갱신, 카드에 합계 + 기기별 값·온라인 상태
 ```
 
-### 12.3 정기 실행 (Windows 작업 스케줄러)
-1. 환경변수를 사용자 환경변수로 등록해 두면 스케줄러가 읽을 수 있습니다. 한 번만 실행하면 됩니다.
-   ```powershell
-   [Environment]::SetEnvironmentVariable("AIHUB_URL", "https://ai-usage-hub-production.up.railway.app", "User")
-   [Environment]::SetEnvironmentVariable("AIHUB_EMAIL", "<이메일>", "User")
-   [Environment]::SetEnvironmentVariable("AIHUB_PASSWORD", "<비밀번호>", "User")
-   ```
-2. 작업 스케줄러에서 **기본 작업 만들기** → 트리거를 "매일" 또는 "매시간"으로 설정합니다.
-3. 동작은 **프로그램 시작**, 프로그램에 `uv`(전체 경로, 예: `C:\Users\<사용자>\.local\bin\uv.exe`), 인수에 `run python -m collector.claude_code`, **시작 위치**에 `C:\Users\cfti1\Documents\GitHub\AI-Usage-Hub\backend`를 넣습니다.
-4. PC가 꺼져 있으면 실행되지 않습니다. 작업 속성에서 "예약된 시간에 시작하지 못하면 가능한 한 빨리 실행"을 체크하면 다음 부팅 때 실행됩니다.
+### 12.1 구성 요소
 
-### 12.4 한계
-- 로그 형식은 공식 문서가 없는 내부 형식입니다. Claude Code 버전이 바뀌면 파서를 고쳐야 할 수 있습니다.
-- 구독의 세션·주간 **한도 사용률(%)** 은 로그에 없으므로 여기서 계산하지 않습니다.
-- 실행할 때마다 스냅샷이 한 줄씩 쌓입니다. 하루 여러 번 실행하면 `usage_snapshots`가 조금씩 커지지만 개인 사용량 수준에서는 문제가 되지 않습니다.
-- 집계 대상 PC의 로그만 포함됩니다. 다른 PC에서 쓴 사용량은 각 PC에서 따로 올라갑니다. 같은 달에 두 PC가 각각 누계를 보내면 마지막에 올린 값만 표시되므로, 여러 PC를 쓴다면 이 점을 고려해야 합니다.
+| 구성 | 파일 | 내용 |
+|---|---|---|
+| 기기 모델·마이그레이션 | `app/models.py`, `migrations/versions/0003_devices.py` | `devices` 테이블, `usage_snapshots.device_id`와 기기별 유니크 제약 |
+| 기기 관리 API | `app/routers/devices.py` | 등록(토큰 1회 반환), 목록(온라인 여부·이번 달 사용량), 토큰 재발급, 폐기 |
+| 에이전트 API | `app/routers/agent.py` | `X-Device-Token` 헤더 인증, 사용량 덮어쓰기 업로드, 신호 |
+| 에이전트 | `collector/agent.py` | 주기 실행, 변경 감지(해시), 재시도, 폐기 시 종료, `~/.aihub/agent.log` |
+| 파서 | `collector/claude_code.py`, `collector/codex.py` | 로그별 사용량 이벤트 추출. 바뀐 파일만 다시 읽음 |
+| 설치 스크립트 | `collector/install-agent.ps1`, `collector/install-agent.sh` | Windows 작업 스케줄러 / macOS launchd 에 로그인 시 자동 실행 등록·삭제 |
+| 설정 읽기 | `collector/agent.py` | 환경변수 우선, 없으면 `~/.aihub/agent.env`(macOS 기본 방식). launchd 는 셸 환경변수를 넘기지 않기 때문 |
+
+### 12.2 업로드 데이터
+
+에이전트는 매번 **이번 달과 지난달**의 값을 함께 보냅니다. PC가 월말에 꺼져 있었어도 다음 실행 때 지난달 값이 맞춰집니다.
+
+| `metric_code` | 기간 | 값 | `raw` |
+|---|---|---|---|
+| `tokens_month` | 그달 1일 ~ 말일 | 그달 누계 | 입력·출력·캐시 생성·캐시 읽기, 모델별 합계 |
+| `tokens_day` | 해당 날짜 | 그날 합계 | 입력·출력·캐시 생성·캐시 읽기 |
+
+대시보드 카드는 이번 달 `tokens_month`를 기기별로 합산합니다. `tokens_day`는 일별 추이 차트(후속)를 위해 저장만 합니다.
+
+### 12.3 로그별 집계 규칙
+
+| 서비스 | 로그 위치 | 규칙 |
+|---|---|---|
+| Claude Code | `~/.claude/projects/**/*.jsonl` (`CLAUDE_PROJECTS_DIR`) | 어시스턴트 응답의 `message.usage`. 같은 `message.id`가 여러 줄에 반복되므로 한 번만 셈. 실제 로그 1973줄이 고유 메시지 754개였음 |
+| Codex | `~/.codex/sessions/**/rollout-*.jsonl`, `archived_sessions` (`CODEX_HOME`) | `event_msg`의 `token_count` 이벤트. `total_token_usage`가 세션 누적값이므로 직전 값과의 차이를 사용량으로 봄. `cached_input_tokens`는 입력에 포함된 값이라 빼서 캐시 읽기로 셈. 포크된 세션은 부모 시각으로 재기록된 이력을 제외. 같은 세션 ID는 한 번만 셈 |
+
+Codex 형식은 openai/codex 저장소의 `codex-rs/protocol` 소스와 공개 분석 자료를 기준으로 했으며, 이 PC에 Codex 로그가 없어 **실제 로그로는 아직 검증하지 않았습니다.** Codex를 쓰는 PC에서 `--dry-run` 결과를 확인해야 합니다.
+
+### 12.4 보안
+
+- 기기 토큰은 무작위 256비트 값이며 서버에는 SHA-256 해시만 저장합니다. 대시보드 비밀번호를 PC에 두지 않습니다.
+- 폐기되거나 재발급으로 바뀐 이전 토큰은 즉시 401로 거부되고, 에이전트는 종료합니다.
+- 토큰 원문은 다시 보여 주지 않습니다(서버에 없음). 필요하면 재발급합니다.
+- macOS의 `~/.aihub/agent.env`는 권한 600(본인만 읽기)으로 만듭니다.
+- 에이전트는 로그를 **읽기만** 하고, 서버로 나가는 HTTPS 연결만 씁니다. 대화 내용은 보내지 않고 토큰 수와 모델 이름만 보냅니다.
+
+### 12.5 한계
+
+- 휴대폰 앱·웹 사용량은 PC 로그가 없어 포함되지 않습니다.
+- 구독 한도 대비 사용률(%)은 로그에 없어 계산하지 않습니다.
+- 같은 PC에서 여러 계정을 쓰면 합쳐집니다.
+- "실시간"은 약 1~2분 지연입니다(에이전트 1분 주기 + 화면 1분 자동 갱신).

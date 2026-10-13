@@ -1,7 +1,13 @@
 import Link from "next/link";
 import { dday, formatDateTime, formatMoney, formatNumber, formatPercent, fromNow } from "@/lib/format";
 import type { DataState, ServiceCardData } from "@/lib/types";
+import { DeviceStatus } from "./DeviceStatus";
 import { SourceBadge } from "./SourceBadge";
+
+const METRIC_LABELS: Record<string, string> = {
+  tokens_month: "이번 달 토큰",
+  tokens_day: "오늘 토큰",
+};
 
 const STATE_MESSAGE: Record<Exclude<DataState, "ok">, string> = {
   no_data: "데이터 없음 — 아직 수집되거나 입력된 사용량이 없습니다",
@@ -36,7 +42,7 @@ export function ServiceCard({ card, currency }: { card: ServiceCardData; currenc
         {card.data_state === "ok" && card.usage ? (
           <>
             <div className="flex items-baseline justify-between text-sm">
-              <span className="text-slate-600">{card.usage.metric_code}</span>
+              <span className="text-slate-600">{METRIC_LABELS[card.usage.metric_code] ?? card.usage.metric_code}</span>
               <span className="font-medium tabular-nums">
                 {card.usage_rate !== null
                   ? formatPercent(card.usage_rate)
@@ -59,6 +65,19 @@ export function ServiceCard({ card, currency }: { card: ServiceCardData; currenc
           </p>
         )}
       </div>
+
+      {card.devices.length > 0 && (
+        <ul className="mt-2 space-y-0.5 text-xs text-slate-600">
+          {card.devices.map((d) => (
+            <li key={d.device_id} className="flex items-center justify-between gap-2">
+              <span className="flex items-center gap-1.5">
+                <DeviceStatus online={d.online} revoked={d.revoked} /> {d.name}
+              </span>
+              <span className="tabular-nums">{formatNumber(d.used_value)}</span>
+            </li>
+          ))}
+        </ul>
+      )}
 
       <dl className="mt-3 space-y-0.5 text-xs text-slate-500">
         {card.month_api_cost !== null && (

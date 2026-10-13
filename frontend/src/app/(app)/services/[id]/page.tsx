@@ -1,6 +1,8 @@
 import { notFound } from "next/navigation";
 import { manualEntryAction, syncServiceAction, testConnectionAction } from "@/app/actions";
 import { ActionForm, SubmitButton } from "@/components/ActionForm";
+import { AutoRefresh } from "@/components/AutoRefresh";
+import { DeviceStatus } from "@/components/DeviceStatus";
 import { SourceBadge } from "@/components/SourceBadge";
 import { api, ApiError } from "@/lib/api";
 import { formatDateTime, formatMoney, formatNumber } from "@/lib/format";
@@ -38,8 +40,47 @@ export default async function ServiceDetailPage({ params }: { params: Promise<{ 
         )}
       </header>
 
+      <AutoRefresh seconds={60} />
+      {data.devices.length > 0 && (
+        <section className="panel">
+          <h2 className="mb-2 text-sm font-medium text-slate-600">기기별 이번 달 토큰 사용량</h2>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="text-left text-xs text-slate-500">
+                <tr>
+                  <th className="py-1">기기</th>
+                  <th>합계</th>
+                  <th>입력</th>
+                  <th>출력</th>
+                  <th>캐시 생성</th>
+                  <th>캐시 읽기</th>
+                  <th>마지막 업로드</th>
+                </tr>
+              </thead>
+              <tbody className="tabular-nums">
+                {data.devices.map((d) => (
+                  <tr key={d.device_id} className="border-t border-slate-100">
+                    <td className="py-1.5">
+                      <span className="flex items-center gap-1.5">
+                        <DeviceStatus online={d.online} revoked={d.revoked} /> {d.name}
+                      </span>
+                    </td>
+                    <td>{formatNumber(d.used_value)}</td>
+                    <td>{formatNumber(d.breakdown?.input ?? null)}</td>
+                    <td>{formatNumber(d.breakdown?.output ?? null)}</td>
+                    <td>{formatNumber(d.breakdown?.cache_creation ?? null)}</td>
+                    <td>{formatNumber(d.breakdown?.cache_read ?? null)}</td>
+                    <td>{formatDateTime(d.captured_at)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      )}
+
       <section className="panel">
-        <h2 className="mb-2 text-sm font-medium text-slate-600">최신 지표</h2>
+        <h2 className="mb-2 text-sm font-medium text-slate-600">최신 지표 (수동 입력·API)</h2>
         {data.latest.length === 0 ? (
           <p className="text-sm text-slate-500">데이터 없음</p>
         ) : (
