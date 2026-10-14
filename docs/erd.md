@@ -30,6 +30,7 @@ AI Usage Hub의 데이터베이스 구조입니다. 운영 DB는 Railway Postgre
 | `sync_jobs` | 수집 이력 | 성공/실패, 오류 메시지(API 키 마스킹), 수동/자동 실행 구분 |
 | `usage_imports` | CSV 업로드 이력 | 파일 이름, 전체·추가·중복·오류 행 수, 파일의 기간. 삭제하면 이 업로드로 새로 추가된 요청만 함께 삭제 |
 | `usage_events` | 요청 1건의 토큰 사용량 (CSV 업로드) | 시각은 UTC. (사용자, 서비스, 시각, 모델, 총 토큰)이 같으면 같은 요청으로 보고 한 번만 저장 → 기간이 겹치는 파일을 다시 올려도 이중 집계되지 않음 |
+| `widget_tokens` | 휴대폰 위젯용 조회 전용 토큰 | SHA-256 해시만 저장. 이번 달 요약 조회만 가능. `last_used_at`으로 마지막 조회, `revoked_at`으로 폐기 |
 | `devices` | 사용량 에이전트를 실행하는 기기(PC) | 기기 토큰은 SHA-256 해시만 저장. `last_seen_at`으로 온라인 여부, `revoked_at`으로 폐기 표시 |
 
 ## 데이터 규칙
@@ -50,12 +51,13 @@ AI Usage Hub의 데이터베이스 구조입니다. 운영 DB는 Railway Postgre
 | 0002 | `backend/migrations/versions/0002_fx_auto.py` | `user_settings`에 `fx_mode`, `fx_source`, `fx_updated_at` 추가. 기존 직접 입력 환율은 manual 모드로 보존 |
 | 0003 | `backend/migrations/versions/0003_devices.py` | `devices` 테이블 추가, `usage_snapshots.device_id`와 기기별 덮어쓰기용 유니크 제약 추가 |
 | 0004 | `backend/migrations/versions/0004_usage_imports.py` | `usage_imports`, `usage_events` 테이블 추가 (Cursor CSV 업로드) |
+| 0005 | `backend/migrations/versions/0005_widget_tokens.py` | `widget_tokens` 테이블 추가 (아이폰 위젯) |
 
 ## ERD와 테이블 명세
 
 <!-- ERD:BEGIN — app/models.py 에서 자동 생성. 직접 수정하지 말고 `uv run python -m app.erd` 실행 -->
 
-테이블 11개. 타입은 PostgreSQL 기준입니다.
+테이블 12개. 타입은 PostgreSQL 기준입니다.
 
 ```mermaid
 erDiagram
@@ -69,6 +71,7 @@ erDiagram
     users ||--o{ usage_imports : "user_id"
     ai_services ||--o{ usage_imports : "service_id"
     users ||--o| user_settings : "user_id"
+    users ||--o{ widget_tokens : "user_id"
     users ||--o{ usage_events : "user_id"
     ai_services ||--o{ usage_events : "service_id"
     usage_imports ||--o{ usage_events : "import_id"
@@ -166,6 +169,15 @@ erDiagram
         text fx_source "NULL"
         timestamptz fx_updated_at "NULL"
         integer sync_interval_minutes
+    }
+    widget_tokens {
+        bigserial id PK
+        uuid user_id FK
+        text name
+        varchar_64 token_hash UK
+        timestamptz created_at
+        timestamptz last_used_at "NULL"
+        timestamptz revoked_at "NULL"
     }
     usage_events {
         bigserial id PK
@@ -335,6 +347,20 @@ erDiagram
 | `sync_interval_minutes` | integer |  | `60` |  |
 
 - CHECK `ck_user_settings_fx_mode`: `fx_mode IN ('auto', 'manual')`
+
+### `widget_tokens`
+
+| 컬럼 | 타입 | NULL | 기본값 | 키 |
+|---|---|---|---|---|
+| `id` | bigserial |  |  | PK |
+| `user_id` | uuid |  |  | FK → `users.id` |
+| `name` | text |  |  |  |
+| `token_hash` | varchar_64 |  |  | UK |
+| `created_at` | timestamptz |  | `now()` |  |
+| `last_used_at` | timestamptz | Y |  |  |
+| `revoked_at` | timestamptz | Y |  |  |
+
+- UNIQUE `uq_widget_tokens_user_name`: (user_id, name)
 
 ### `usage_events`
 

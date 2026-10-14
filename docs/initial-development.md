@@ -106,8 +106,8 @@ backend/
     seed.py            관리자 계정 + 1차 서비스 4종 (멱등)
     connectors/        __init__.py(레지스트리), base.py(인터페이스)
     routers/           auth, dashboard, services, subscriptions, usage, costs, sync_jobs, settings
-  migrations/          Alembic (0001_initial_schema, 0002_fx_auto, 0003_devices, 0004_usage_imports)
-  tests/               API·환율·기기·에이전트·CSV·월 선택·ERD 테스트 47건
+  migrations/          Alembic (0001_initial_schema, 0002_fx_auto, 0003_devices, 0004_usage_imports, 0005_widget_tokens)
+  tests/               API·환율·기기·에이전트·CSV·월 선택·위젯·ERD 테스트 51건
   Dockerfile · railway.toml · pyproject.toml · uv.lock
 frontend/
   src/app/(app)/       page.tsx(대시보드), services/[id], costs, settings
@@ -175,7 +175,7 @@ class Connector(ABC):
 
 ## 6. API 엔드포인트 (구현 완료)
 
-`/health`, `/api/auth/login`, `/api/agent/*`를 제외한 모든 엔드포인트는 `Authorization: Bearer <JWT>`가 필요합니다. `/api/agent/*`는 기기 토큰으로 인증합니다.
+`/health`, `/api/auth/login`, `/api/agent/*`, `/api/widget/summary`를 제외한 모든 엔드포인트는 `Authorization: Bearer <JWT>`가 필요합니다. `/api/agent/*`는 기기 토큰, `/api/widget/summary`는 위젯 토큰으로 인증합니다.
 
 | Method | Endpoint | 설명 | 기획서 |
 |---|---|---|---|
@@ -201,6 +201,9 @@ class Connector(ABC):
 | POST | `/api/agent/usage` | **기기 토큰 인증**(`X-Device-Token`). 기기별 월·일 누계 덮어쓰기 업로드 | 추가 |
 | POST / GET | `/api/services/{id}/usage-imports` | 사용량 CSV 업로드(`{filename, content}`) / 업로드 이력. 현재 `cursor`만 지원 | 추가 |
 | DELETE | `/api/usage-imports/{id}` | 업로드 삭제(그 업로드로 추가된 요청만 제거) | 추가 |
+| GET / POST | `/api/widget-tokens` | 위젯 토큰 목록 / 발급(토큰 1회 반환) | 추가 |
+| POST | `/api/widget-tokens/{id}/revoke` | 위젯 토큰 폐기 | 추가 |
+| GET | `/api/widget/summary` | **위젯 토큰 인증**(`X-Widget-Token`). 이번 달 지출·서비스별 토큰·7일 API 비용 요약 (조회 전용) | 추가 |
 | POST | `/api/agent/heartbeat` | **기기 토큰 인증**. 온라인 신호 | 추가 |
 
 ---

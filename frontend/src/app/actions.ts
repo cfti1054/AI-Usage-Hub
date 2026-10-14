@@ -5,7 +5,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { api, ApiError, login, TOKEN_COOKIE } from "@/lib/api";
 import { toNum } from "@/lib/format";
-import type { Device, FxResult, Service, SyncJob, UsageImport } from "@/lib/types";
+import type { Device, FxResult, Service, SyncJob, UsageImport, WidgetToken } from "@/lib/types";
 
 export interface ActionResult {
   ok: boolean;
@@ -220,6 +220,23 @@ export async function deleteImportAction(_: ActionResult | null, fd: FormData) {
   return run(async () => {
     const res = await api<{ removed_events: number }>(`/api/usage-imports/${str(fd, "import_id")}`, { method: "DELETE" });
     return `업로드를 삭제했습니다 (요청 ${res.removed_events}건 제거)`;
+  });
+}
+
+export async function createWidgetTokenAction(_: ActionResult | null, fd: FormData) {
+  return run(async () => {
+    const res = await api<{ widget_token: WidgetToken; token: string }>("/api/widget-tokens", {
+      method: "POST",
+      body: JSON.stringify({ name: str(fd, "name") }),
+    });
+    return { ok: true, message: `"${res.widget_token.name}" 위젯 토큰을 발급했습니다`, token: res.token };
+  });
+}
+
+export async function revokeWidgetTokenAction(_: ActionResult | null, fd: FormData) {
+  return run(async () => {
+    await api(`/api/widget-tokens/${str(fd, "token_id")}/revoke`, { method: "POST" });
+    return "위젯 토큰을 폐기했습니다. 이 토큰을 쓰는 위젯은 더 이상 값을 받지 못합니다";
   });
 }
 

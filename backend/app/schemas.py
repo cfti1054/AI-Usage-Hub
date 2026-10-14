@@ -215,6 +215,33 @@ class AgentUsageIn(BaseModel):
     snapshots: list[AgentSnapshotIn] = Field(max_length=500)
 
 
+# --- widget ---
+class WidgetTokenCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=50)
+
+    @field_validator("name")
+    @classmethod
+    def strip_name(cls, v: str) -> str:
+        v = v.strip()
+        if not v:
+            raise ValueError("이름을 입력하세요")
+        return v
+
+
+class WidgetTokenOut(ORM):
+    id: int
+    name: str
+    created_at: datetime
+    last_used_at: datetime | None
+    revoked_at: datetime | None
+
+
+class WidgetTokenCreated(BaseModel):
+    widget_token: WidgetTokenOut
+    # 이 응답에서 한 번만 내려준다. 서버에는 해시만 저장됨
+    token: str
+
+
 # --- CSV imports ---
 MAX_IMPORT_CHARS = 5_000_000  # 약 5MB. Cursor 한 달 CSV 는 보통 수십~수백 KB
 

@@ -9,5 +9,8 @@ export function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/((?!login|_next/static|_next/image|favicon.ico).*)"],
+  // 아이콘·PWA 설정은 로그인 전에도 열려야 한다 (iOS·브라우저가 쿠키 없이 가져감)
+  matcher: [
+    "/((?!login|_next/static|_next/image|favicon.ico|icon.svg|apple-icon.png|manifest.webmanifest|icons/).*)",
+  ],
 };

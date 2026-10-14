@@ -9,22 +9,29 @@ import {
   toggleServiceAction,
 } from "@/app/actions";
 import { ActionForm, SubmitButton } from "@/components/ActionForm";
+import { headers } from "next/headers";
 import { DeviceManager } from "@/components/DeviceManager";
 import { FxSettings } from "@/components/FxSettings";
 import { SourceBadge } from "@/components/SourceBadge";
+import { WidgetManager } from "@/components/WidgetManager";
 import { api } from "@/lib/api";
 import { formatMoney } from "@/lib/format";
-import type { Device, Service, Subscription, UserSettings } from "@/lib/types";
+import type { Device, Service, Subscription, UserSettings, WidgetToken } from "@/lib/types";
 
 export default async function SettingsPage() {
-  const [services, subscriptions, settings, devices] = await Promise.all([
+  const [services, subscriptions, settings, devices, widgetTokens] = await Promise.all([
     api<Service[]>("/api/services"),
     api<Subscription[]>("/api/subscriptions"),
     api<UserSettings>("/api/settings"),
     api<Device[]>("/api/devices"),
+    api<WidgetToken[]>("/api/widget-tokens"),
   ]);
   // 에이전트 설정 명령에 넣을 백엔드 주소 (비밀 값이 아니며 에이전트가 직접 접속하는 주소)
   const serverUrl = process.env.API_BASE_URL ?? "http://localhost:8000";
+  // 위젯을 눌렀을 때 열 대시보드 주소 (지금 접속한 주소)
+  const h = await headers();
+  const host = h.get("x-forwarded-host") ?? h.get("host");
+  const dashboardUrl = host ? `${h.get("x-forwarded-proto") ?? "https"}://${host}` : "";
   const names = Object.fromEntries(services.map((s) => [s.id, s.name]));
 
   return (
@@ -103,6 +110,16 @@ export default async function SettingsPage() {
           </p>
         </div>
         <DeviceManager devices={devices} serverUrl={serverUrl} />
+      </section>
+
+      <section className="panel space-y-3">
+        <div>
+          <h2 className="text-sm font-medium text-slate-600">아이폰 위젯</h2>
+          <p className="text-xs text-slate-500">
+            Scriptable 앱으로 홈 화면·잠금 화면에 이번 달 지출과 토큰 사용량을 띄웁니다. 위젯 토큰을 발급하면 토큰이 들어간 스크립트가 나옵니다.
+          </p>
+        </div>
+        <WidgetManager tokens={widgetTokens} serverUrl={serverUrl} dashboardUrl={dashboardUrl} />
       </section>
 
       <section className="panel space-y-3">

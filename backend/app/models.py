@@ -112,6 +112,21 @@ class Device(Base):
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))  # 폐기 시각 (이후 업로드 거부)
 
 
+class WidgetToken(Base):
+    """휴대폰 위젯용 조회 전용 토큰. 요약 조회만 가능하고, 해시만 저장한다."""
+
+    __tablename__ = "widget_tokens"
+    __table_args__ = (UniqueConstraint("user_id", "name", name="uq_widget_tokens_user_name"),)
+
+    id: Mapped[int] = mapped_column(BigId, primary_key=True)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))
+    name: Mapped[str] = mapped_column(Text)  # 예: '내 아이폰'
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
 class UsageSnapshot(Base):
     __tablename__ = "usage_snapshots"
     __table_args__ = (
