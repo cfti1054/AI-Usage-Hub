@@ -19,7 +19,7 @@ AI Usage Hub에 지금까지 구현된 기능과 아직 구현되지 않은 기�
 | 서비스별 자동 수집 커넥터 | ❌ 미구현 | Anthropic·OpenAI·Gemini 커넥터 없음 → 자동 수집 대상이 아직 없음 |
 | 알림 | ❌ 미구현 | 임계치 값만 저장. 카카오톡 "나에게 보내기" 검토 완료 |
 | 배포 | ✅ 설정 완료 | Railway(백엔드·DB), Vercel(프론트엔드) |
-| 테스트 | ✅ 51건 통과 | `cd backend && uv run pytest` |
+| 테스트 | ✅ 52건 통과 | `cd backend && uv run pytest` |
 
 ## 1. 구현 완료
 
@@ -75,13 +75,13 @@ API 목록은 [initial-development.md](initial-development.md)의 6장에 있습
 | Railway | `backend/Dockerfile`, `backend/railway.toml` | 시작 시 마이그레이션 → 초기 데이터 → 서버 실행. 헬스체크 `/health` |
 | Vercel | `frontend/` 루트 | 환경변수 `API_BASE_URL`에 Railway 주소 필요 |
 
-### 1.5 테스트 (51건)
+### 1.5 테스트 (52건)
 
 | 파일 | 건수 | 검증 내용 |
 |---|---|---|
 | `tests/test_api.py` | 9 | 인증, 빈 대시보드에서 0 대신 null, 환율 환산, 수동 입력, 수집 성공·실패·키 마스킹, 서비스 비활성화 |
 | `tests/test_fx.py` | 7 | 수출입은행 주말 처리·인증 오류, ECB 대체, 직접 입력 보호, 조회 실패 시 기존 값 유지 |
-| `tests/test_collector.py` | 9 | Claude Code 중복 제거·시간대·변경 파일만 재파싱, Codex 누적값 차이·포크 이력 제외·보관 세션 중복, 업로드 형식, 설정 파일 파싱 |
+| `tests/test_collector.py` | 10 | Claude Code 중복 제거·시간대·변경 파일만 재파싱, Codex 누적값 차이·포크 이력 제외·보관 세션 중복, 업로드 형식, 설정 파일 파싱, Python 3.9의 UTC Z 시각 파싱 |
 | `tests/test_imports.py` | 8 | 실제 Cursor CSV 파싱, 숫자 비용·열 순서, 잘못된 행 건너뜀, 형식 오류, 재업로드 중복 제거, 겹치는 기간, 월별 합계·삭제, 오류 응답 |
 | `tests/test_dashboard_period.py` | 5 | 기본은 이번 달, 지난달 기기·API 비용·CSV 값, 수동 입력의 월 구분, 잘못된 period 거부 |
 | `tests/test_widget.py` | 4 | 토큰 1회 노출·해시 저장, 위젯·기기·로그인 토큰 서로 못 씀, 빈 데이터는 null, 대시보드와 같은 수치 |
