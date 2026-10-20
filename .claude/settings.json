@@ -1,0 +1,36 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(uv run pytest:*)",
+      "Bash(uv run python -m app.erd:*)",
+      "Bash(uv run alembic history:*)",
+      "Bash(uv run alembic current:*)",
+      "Bash(uv sync:*)",
+      "Bash(npm run lint)",
+      "Bash(npm run build)",
+      "Bash(npx tsc:*)",
+      "Bash(git status:*)",
+      "Bash(git diff:*)",
+      "Bash(git log:*)",
+      "Bash(git show:*)",
+      "Bash(git branch:*)"
+    ],
+    "ask": [
+      "Bash(git commit:*)",
+      "Bash(git push:*)",
+      "Bash(git reset:*)",
+      "Bash(git checkout:*)",
+      "Bash(uv run alembic upgrade:*)",
+      "Bash(uv run alembic downgrade:*)",
+      "Bash(uv run alembic revision:*)",
+      "Bash(uv run uvicorn:*)"
+    ],
+    "deny": [
+      "Read(./backend/.env)",
+      "Read(./frontend/.env)",
+      "Read(./frontend/.env.local)",
+      "Read(./backend/collector/**/agent.env)",
+      "Bash(rm -rf:*)"
+    ]
+  }
+}
