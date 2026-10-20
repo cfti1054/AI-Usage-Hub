@@ -27,7 +27,7 @@ from collections.abc import Iterator
 from datetime import datetime
 from pathlib import Path
 
-from collector.common import FileCache, Totals, UsageEvent
+from collector.common import FileCache, Totals, UsageEvent, parse_iso
 
 SERVICE_ID = "codex"
 _FIELDS = ("input_tokens", "cached_input_tokens", "cache_write_input_tokens", "output_tokens")
@@ -42,7 +42,7 @@ def _parse_ts(value: object) -> datetime | None:
     if not isinstance(value, str):
         return None
     try:
-        return datetime.fromisoformat(value)
+        return parse_iso(value)
     except ValueError:
         return None
 

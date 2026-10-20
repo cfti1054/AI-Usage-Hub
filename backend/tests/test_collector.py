@@ -5,7 +5,7 @@ from zoneinfo import ZoneInfo
 from collector.agent import apply_config, build_snapshots, collect, load_config_file
 from collector.claude_code import ClaudeCodeSource
 from collector.codex import CodexSource, parse_file
-from collector.common import aggregate_by_month, previous_month_start
+from collector.common import aggregate_by_month, parse_iso, previous_month_start
 
 TZ = ZoneInfo("Asia/Seoul")
 TODAY = date(2026, 10, 12)
@@ -186,3 +186,10 @@ def test_config_file_parsing_and_env_precedence(tmp_path, monkeypatch):
 def test_previous_month_start_handles_january():
     assert previous_month_start(date(2027, 1, 15)) == date(2026, 12, 1)
     assert build_snapshots("codex", {}) == []
+
+
+def test_parse_iso_accepts_utc_z_suffix():
+    # Python 3.10 이하의 fromisoformat 은 'Z' 를 읽지 못해 Claude Code 로그가 전부 버려졌었다
+    # (작업 스케줄러가 Anaconda Python 3.9 로 에이전트를 실행한 경우)
+    assert parse_iso("2026-10-11T15:30:00.123Z") == parse_iso("2026-10-11T15:30:00.123+00:00")
+    assert parse_iso("2026-10-11T15:30:00.123Z").astimezone(TZ).date() == date(2026, 10, 12)

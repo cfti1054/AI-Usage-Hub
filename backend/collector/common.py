@@ -73,12 +73,19 @@ def previous_month_start(day: date) -> date:
     return month_start(date.fromordinal(first.toordinal() - 1))
 
 
+def parse_iso(value: str) -> datetime:
+    """ISO 8601 시각. Python 3.10 이하의 fromisoformat 은 끝의 'Z' 를 읽지 못하므로 +00:00 으로 바꾼다."""
+    if value.endswith(("Z", "z")):
+        value = value[:-1] + "+00:00"
+    return datetime.fromisoformat(value)
+
+
 def aggregate_by_month(events: Iterable[UsageEvent], tz: ZoneInfo, today: date, months: set[date]) -> dict[date, PeriodUsage]:
     """지정한 달(월 시작일 집합)의 월 합계·모델별·일별 합계. 오늘 이후 날짜는 제외한다."""
     result: dict[date, PeriodUsage] = {m: PeriodUsage() for m in months}
     for event in events:
         try:
-            day = datetime.fromisoformat(event.timestamp).astimezone(tz).date()
+            day = parse_iso(event.timestamp).astimezone(tz).date()
         except (TypeError, ValueError):
             continue
         bucket = result.get(month_start(day))

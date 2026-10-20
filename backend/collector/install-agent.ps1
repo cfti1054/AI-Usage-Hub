@@ -36,7 +36,8 @@ foreach ($name in "AIHUB_URL", "AIHUB_DEVICE_TOKEN") {
 }
 
 # --no-project: 에이전트는 표준 라이브러리만 쓰므로 백엔드 의존성을 설치하지 않는다
-$action = New-ScheduledTaskAction -Execute $uvw -Argument "run --no-project python -m collector.agent" -WorkingDirectory $backendDir
+# --python 3.12: PATH 의 다른 Python(Anaconda 3.9 등)이 잡히지 않게 고정한다. 없으면 uv 가 내려받는다
+$action = New-ScheduledTaskAction -Execute $uvw -Argument "run --no-project --python 3.12 python -m collector.agent" -WorkingDirectory $backendDir
 $trigger = New-ScheduledTaskTrigger -AtLogOn -User $env:USERNAME
 $settings = New-ScheduledTaskSettingsSet `
     -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable `

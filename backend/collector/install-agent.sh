@@ -42,6 +42,7 @@ mkdir -p "$HOME/Library/LaunchAgents" "$LOG_DIR"
 
 # launchd 는 PATH 가 최소한이라 uv 를 전체 경로로 지정한다.
 # --no-project: 에이전트는 표준 라이브러리만 쓰므로 백엔드 의존성을 설치하지 않는다.
+# --python 3.12: 시스템 Python(macOS 기본 3.9 등)이 잡히지 않게 고정한다. 없으면 uv 가 내려받는다.
 # 비정상 종료 시에만 60초 간격으로 다시 시작한다.
 cat > "$PLIST" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
@@ -54,6 +55,8 @@ cat > "$PLIST" <<EOF
     <string>$UV</string>
     <string>run</string>
     <string>--no-project</string>
+    <string>--python</string>
+    <string>3.12</string>
     <string>python</string>
     <string>-m</string>
     <string>collector.agent</string>
